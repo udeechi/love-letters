@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import BookCover from "./BookCover";
 import LockScreen from "./LockScreen";
@@ -9,50 +9,53 @@ import EditToggle from "./EditToggle";
 import PageControls from "./PageControls";
 import { useBookState } from "@/hooks/useBookState";
 import { useNotebook } from "@/hooks/useNotebook";
-import type { NotebookPage, PageImage } from "@/types";
+import type { PageImage } from "@/types";
 
 type Phase = "locked" | "cover" | "opening" | "open";
 
-export default function Book() {
-  const {
-    isLocked,
-    isEditing,
-    isInitialized,
-    unlock,
-    toggleEditing,
-  } = useBookState();
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${breakpoint}px)`);
+    setIsMobile(mql.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
 
+export default function Book() {
+  const { isLocked, isEditing, isInitialized, unlock, toggleEditing } = useBookState();
   const {
-    pages,
-    currentSpread,
-    totalSpreads,
-    leftPage,
-    rightPage,
-    isLoading: isLoadingPages,
-    fetchPages,
-    savePage,
-    createPage,
-    deletePage,
-    nextSpread,
-    prevSpread,
+    pages, currentSpread, totalSpreads,
+    leftPage, rightPage,
+    isLoading: isLoadingPages, fetchPages,
+    savePage, createPage, deletePage,
+    nextSpread, prevSpread,
   } = useNotebook();
 
   const [phase, setPhase] = useState<Phase>("locked");
   const [isFolding, setIsFolding] = useState(false);
   const [foldDirection, setFoldDirection] = useState<"next" | "prev" | null>(null);
   const [textColor, setTextColor] = useState("#000000");
+  const [mobilePageIndex, setMobilePageIndex] = useState(0);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
-    if (!isLocked && isInitialized) {
-      fetchPages();
-    }
+    if (!isLocked && isInitialized) fetchPages();
   }, [isLocked, isInitialized, fetchPages]);
 
   useEffect(() => {
-    if (!isLocked && isInitialized && phase === "locked") {
-      setPhase("cover");
-    }
+    if (!isLocked && isInitialized && phase === "locked") setPhase("cover");
   }, [isLocked, isInitialized, phase]);
+
+  useEffect(() => {
+    if (isMobile) {
+      const si = currentSpread * 2;
+      if (si < pages.length) setMobilePageIndex(si);
+    }
+  }, [isMobile, currentSpread, pages.length]);
 
   const handleCoverClick = useCallback(() => {
     if (phase !== "cover") return;
@@ -60,17 +63,34 @@ export default function Book() {
     setTimeout(() => setPhase("open"), 1400);
   }, [phase]);
 
+  const mobilePage = isMobile ? pages[mobilePageIndex] ?? null : null;
+  const mobileTotal = pages.length;
+
+  const handleMobileNext = useCallback(() => {
+    if (mobilePageIndex < mobileTotal - 1) {
+      setMobilePageIndex((i) => i + 1);
+    }
+  }, [mobilePageIndex, mobileTotal]);
+
+  const handleMobilePrev = useCallback(() => {
+    if (mobilePageIndex > 0) {
+      setMobilePageIndex((i) => i - 1);
+    }
+  }, [mobilePageIndex]);
+
   const handleNext = useCallback(() => {
     if (isFolding || phase !== "open") return;
+    if (isMobile) return handleMobileNext();
     setIsFolding(true);
     setFoldDirection("next");
-  }, [isFolding, phase]);
+  }, [isFolding, phase, isMobile, handleMobileNext]);
 
   const handlePrev = useCallback(() => {
     if (isFolding || phase !== "open") return;
+    if (isMobile) return handleMobilePrev();
     setIsFolding(true);
     setFoldDirection("prev");
-  }, [isFolding, phase]);
+  }, [isFolding, phase, isMobile, handleMobilePrev]);
 
   const handleFoldComplete = useCallback(() => {
     if (foldDirection === "next") nextSpread();
@@ -81,11 +101,18 @@ export default function Book() {
 
   const handleSaveContent = (c: string) => { if (leftPage) savePage(leftPage.id, c); };
   const handleSaveRightContent = (c: string) => { if (rightPage) savePage(rightPage.id, c); };
+  const handleSaveMobileContent = (c: string) => { if (mobilePage) savePage(mobilePage.id, c); };
   const handleSaveImages = (imgs: PageImage[]) => { if (leftPage) savePage(leftPage.id, leftPage.content, imgs); };
   const handleSaveRightImages = (imgs: PageImage[]) => { if (rightPage) savePage(rightPage.id, rightPage.content, imgs); };
+  const handleSaveMobileImages = (imgs: PageImage[]) => { if (mobilePage) savePage(mobilePage.id, mobilePage.content, imgs); };
   const handleDeletePage = async () => {
-    const target = rightPage || leftPage;
-    if (target && pages.length > 1) await deletePage(target.id);
+    const target = isMobile ? mobilePage : (rightPage || leftPage);
+    if (target && pages.length > 1) {
+      await deletePage(target.id);
+      if (isMobile && mobilePageIndex >= pages.length - 1 && mobilePageIndex > 0) {
+        setMobilePageIndex((i) => i - 1);
+      }
+    }
   };
 
   if (!isInitialized) {
@@ -128,10 +155,14 @@ export default function Book() {
             {isEditing && (
               <motion.div
                 key="color-picker"
-                className="fixed top-6 left-6 z-50 flex items-center gap-2 px-3 py-1.5 bg-[#1a0d12]/80 border border-[#d4af37]/20 rounded-sm backdrop-blur-sm"
-                initial={{ x: -40, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -40, opacity: 0 }}
+                className={`fixed z-50 flex items-center gap-2 px-3 py-1.5 bg-[#1a0d12]/80 border border-[#d4af37]/20 rounded-sm backdrop-blur-sm ${
+                  isMobile
+                    ? "bottom-20 left-1/2 -translate-x-1/2"
+                    : "top-6 left-6"
+                }`}
+                initial={isMobile ? { y: 40, opacity: 0 } : { x: -40, opacity: 0 }}
+                animate={isMobile ? { y: 0, opacity: 1 } : { x: 0, opacity: 1 }}
+                exit={isMobile ? { y: 40, opacity: 0 } : { x: -40, opacity: 0 }}
                 transition={{ type: "spring", stiffness: 200, damping: 25 }}
               >
                 <label className="text-[10px] font-[family-name:var(--font-playfair)] text-[#8a7a6a] tracking-wider uppercase">
@@ -141,17 +172,18 @@ export default function Book() {
                   type="color"
                   value={textColor}
                   onChange={(e) => setTextColor(e.target.value)}
-                  className="w-5 h-5 rounded-sm border border-[#d4af37]/20 cursor-pointer bg-transparent"
+                  className={`rounded-sm border border-[#d4af37]/20 cursor-pointer bg-transparent ${
+                    isMobile ? "w-8 h-8" : "w-5 h-5"
+                  }`}
                 />
-                <input
-                  type="text"
-                  value={textColor}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setTextColor(val);
-                  }}
-                  className="w-20 px-1.5 py-0.5 text-[11px] font-mono bg-transparent border border-[#d4af37]/15 rounded-sm text-[#d4af37]/80 focus:border-[#d4af37]/40 focus:outline-none"
-                />
+                {!isMobile && (
+                  <input
+                    type="text"
+                    value={textColor}
+                    onChange={(e) => setTextColor(e.target.value)}
+                    className="w-20 px-1.5 py-0.5 text-[11px] font-mono bg-transparent border border-[#d4af37]/15 rounded-sm text-[#d4af37]/80 focus:border-[#d4af37]/40 focus:outline-none"
+                  />
+                )}
               </motion.div>
             )}
 
@@ -173,15 +205,22 @@ export default function Book() {
 
             {/* THE BOOK */}
             <div className="book-scene">
-              {/* LEFT PAGE */}
-              {showPages && (
-                <div className="absolute top-0 bottom-0 left-0 w-1/2 overflow-hidden" style={{ zIndex: 1 }}>
-                  <div className="w-full h-full page-surface page-shadow-left">
+              {/* MOBILE: single page view */}
+              {isMobile && showPages && (
+                <div className="absolute inset-0 overflow-hidden" style={{ zIndex: 1 }}>
+                  <div className="w-full h-full page-surface" style={{ borderRadius: 6 }}>
                     {isLoadingPages ? (
                       <LoadingIndicator />
-                    ) : leftPage ? (
+                    ) : mobilePage ? (
                       <AnimatePresence mode="wait">
-                        <BookPage key={leftPage.id} page={leftPage} isEditing={isEditing} onSaveContent={handleSaveContent} onSaveImages={handleSaveImages} textColor={textColor} />
+                        <BookPage
+                          key={mobilePage.id}
+                          page={mobilePage}
+                          isEditing={isEditing}
+                          onSaveContent={handleSaveMobileContent}
+                          onSaveImages={handleSaveMobileImages}
+                          textColor={textColor}
+                        />
                       </AnimatePresence>
                     ) : (
                       <EmptyPageHint onCreate={createPage} />
@@ -190,40 +229,56 @@ export default function Book() {
                 </div>
               )}
 
-              {/* RIGHT PAGE */}
-              {showPages && (
-                <motion.div
-                  className="absolute top-0 bottom-0 right-0 w-1/2 overflow-hidden"
-                  style={{
-                    zIndex: isFolding && foldDirection === "next" ? 15 : 2,
-                    transformOrigin: "left center",
-                    transformStyle: "preserve-3d" as const,
-                  }}
-                  animate={
-                    isFolding && foldDirection === "next"
-                      ? { rotateY: [0, -180] }
-                      : isFolding && foldDirection === "prev"
-                      ? { rotateY: [-180, 0] }
-                      : { rotateY: 0 }
-                  }
-                  transition={{ duration: 0.7, ease: [0.645, 0.045, 0.355, 1] }}
-                  onAnimationComplete={handleFoldComplete}
-                >
-                  <div
-                    className="w-full h-full page-surface page-shadow-right"
-                    style={{ backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
-                  >
-                    {isLoadingPages ? (
-                      <LoadingIndicator />
-                    ) : rightPage ? (
-                      <AnimatePresence mode="wait">
-                        <BookPage key={rightPage.id} page={rightPage} isEditing={isEditing} onSaveContent={handleSaveRightContent} onSaveImages={handleSaveRightImages} textColor={textColor} />
-                      </AnimatePresence>
-                    ) : (
-                      <EmptyPageHint />
-                    )}
+              {/* DESKTOP/TABLET: spread view */}
+              {!isMobile && showPages && (
+                <>
+                  <div className="absolute top-0 bottom-0 left-0 w-1/2 overflow-hidden" style={{ zIndex: 1 }}>
+                    <div className="w-full h-full page-surface page-shadow-left">
+                      {isLoadingPages ? (
+                        <LoadingIndicator />
+                      ) : leftPage ? (
+                        <AnimatePresence mode="wait">
+                          <BookPage key={leftPage.id} page={leftPage} isEditing={isEditing} onSaveContent={handleSaveContent} onSaveImages={handleSaveImages} textColor={textColor} />
+                        </AnimatePresence>
+                      ) : (
+                        <EmptyPageHint onCreate={createPage} />
+                      )}
+                    </div>
                   </div>
-                </motion.div>
+
+                  <motion.div
+                    className="absolute top-0 bottom-0 right-0 w-1/2 overflow-hidden"
+                    style={{
+                      zIndex: isFolding && foldDirection === "next" ? 15 : 2,
+                      transformOrigin: "left center",
+                      transformStyle: "preserve-3d" as const,
+                    }}
+                    animate={
+                      isFolding && foldDirection === "next"
+                        ? { rotateY: [0, -180] }
+                        : isFolding && foldDirection === "prev"
+                        ? { rotateY: [-180, 0] }
+                        : { rotateY: 0 }
+                    }
+                    transition={{ duration: 0.7, ease: [0.645, 0.045, 0.355, 1] }}
+                    onAnimationComplete={handleFoldComplete}
+                  >
+                    <div
+                      className="w-full h-full page-surface page-shadow-right"
+                      style={{ backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
+                    >
+                      {isLoadingPages ? (
+                        <LoadingIndicator />
+                      ) : rightPage ? (
+                        <AnimatePresence mode="wait">
+                          <BookPage key={rightPage.id} page={rightPage} isEditing={isEditing} onSaveContent={handleSaveRightContent} onSaveImages={handleSaveRightImages} textColor={textColor} />
+                        </AnimatePresence>
+                      ) : (
+                        <EmptyPageHint />
+                      )}
+                    </div>
+                  </motion.div>
+                </>
               )}
 
               {/* COVER */}
@@ -241,15 +296,18 @@ export default function Book() {
 
             {phase === "open" && pages.length > 0 && (
               <PageControls
-                currentSpread={currentSpread}
-                totalSpreads={totalSpreads}
+                currentSpread={isMobile ? 0 : currentSpread}
+                totalSpreads={isMobile ? 1 : totalSpreads}
                 totalPages={pages.length}
+                currentPage={isMobile ? mobilePageIndex : currentSpread * 2}
+                totalPagesShowing={isMobile ? 1 : (rightPage ? 2 : 1)}
                 onPrev={handlePrev}
                 onNext={handleNext}
                 onAddPage={createPage}
                 onDeletePage={handleDeletePage}
                 isEditing={isEditing}
                 isSaving={false}
+                isMobile={isMobile}
               />
             )}
           </motion.div>
