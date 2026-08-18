@@ -182,7 +182,7 @@ html, body {
 }
 
 /* TipTap Editor Styles */
-.tiptap-editor .ProseMirror {
+.tiptap-editor.ProseMirror {
   outline: none;
   min-height: 200px;
   padding: 16px 24px;
@@ -192,7 +192,7 @@ html, body {
   color: #000000;
 }
 
-.tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+.tiptap-editor.ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
   color: #b8a08a;
@@ -201,9 +201,9 @@ html, body {
   font-style: italic;
 }
 
-.tiptap-editor .ProseMirror h1,
-.tiptap-editor .ProseMirror h2,
-.tiptap-editor .ProseMirror h3 {
+.tiptap-editor.ProseMirror h1,
+.tiptap-editor.ProseMirror h2,
+.tiptap-editor.ProseMirror h3 {
   font-family: var(--font-playfair);
   color: #000000;
   margin-top: 0.5em;
@@ -214,21 +214,21 @@ html, body {
 .tiptap-editor .ProseMirror h2 { font-size: 1.3em; }
 .tiptap-editor .ProseMirror h3 { font-size: 1.1em; }
 
-.tiptap-editor .ProseMirror strong {
+.tiptap-editor.ProseMirror strong {
   font-weight: 700;
   color: #000000;
 }
 
-.tiptap-editor .ProseMirror em {
+.tiptap-editor.ProseMirror em {
   color: #000000;
 }
 
-.tiptap-editor .ProseMirror u {
+.tiptap-editor.ProseMirror u {
   text-decoration-color: rgba(212, 175, 55, 0.6);
   text-underline-offset: 3px;
 }
 
-.tiptap-editor .ProseMirror img {
+.tiptap-editor.ProseMirror img {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
@@ -236,7 +236,7 @@ html, body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.tiptap-editor .ProseMirror blockquote {
+.tiptap-editor.ProseMirror blockquote {
   border-left: 3px solid rgba(212, 175, 55, 0.5);
   padding-left: 16px;
   margin-left: 0;
@@ -244,27 +244,27 @@ html, body {
   color: #000000;
 }
 
-.tiptap-editor .ProseMirror hr {
+.tiptap-editor.ProseMirror hr {
   border: none;
   border-top: 1px solid rgba(212, 175, 55, 0.3);
   margin: 24px 0;
 }
 
-.tiptap-editor .ProseMirror ul,
-.tiptap-editor .ProseMirror ol {
+.tiptap-editor.ProseMirror ul,
+.tiptap-editor.ProseMirror ol {
   padding-left: 24px;
 }
 
 /* Scrollbar */
-.tiptap-editor .ProseMirror::-webkit-scrollbar {
+.tiptap-editor.ProseMirror::-webkit-scrollbar {
   width: 6px;
 }
 
-.tiptap-editor .ProseMirror::-webkit-scrollbar-track {
+.tiptap-editor.ProseMirror::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.tiptap-editor .ProseMirror::-webkit-scrollbar-thumb {
+.tiptap-editor.ProseMirror::-webkit-scrollbar-thumb {
   background: rgba(168, 138, 100, 0.3);
   border-radius: 3px;
 }
