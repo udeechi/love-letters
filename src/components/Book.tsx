@@ -40,6 +40,7 @@ export default function Book() {
   const [phase, setPhase] = useState<Phase>("locked");
   const [isFolding, setIsFolding] = useState(false);
   const [foldDirection, setFoldDirection] = useState<"next" | "prev" | null>(null);
+  const [textColor, setTextColor] = useState("#000000");
 
   useEffect(() => {
     if (!isLocked && isInitialized) {
@@ -124,6 +125,36 @@ export default function Book() {
               )}
             </AnimatePresence>
 
+            {isEditing && (
+              <motion.div
+                key="color-picker"
+                className="fixed top-6 left-6 z-50 flex items-center gap-2 px-3 py-1.5 bg-[#1a0d12]/80 border border-[#d4af37]/20 rounded-sm backdrop-blur-sm"
+                initial={{ x: -40, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -40, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 200, damping: 25 }}
+              >
+                <label className="text-[10px] font-[family-name:var(--font-playfair)] text-[#8a7a6a] tracking-wider uppercase">
+                  Color
+                </label>
+                <input
+                  type="color"
+                  value={textColor}
+                  onChange={(e) => setTextColor(e.target.value)}
+                  className="w-5 h-5 rounded-sm border border-[#d4af37]/20 cursor-pointer bg-transparent"
+                />
+                <input
+                  type="text"
+                  value={textColor}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setTextColor(val);
+                  }}
+                  className="w-20 px-1.5 py-0.5 text-[11px] font-mono bg-transparent border border-[#d4af37]/15 rounded-sm text-[#d4af37]/80 focus:border-[#d4af37]/40 focus:outline-none"
+                />
+              </motion.div>
+            )}
+
             {!isEditing && phase === "open" && (
               <motion.button
                 key="edit-entry"
@@ -150,7 +181,7 @@ export default function Book() {
                       <LoadingIndicator />
                     ) : leftPage ? (
                       <AnimatePresence mode="wait">
-                        <BookPage key={leftPage.id} page={leftPage} isEditing={isEditing} onSaveContent={handleSaveContent} onSaveImages={handleSaveImages} />
+                        <BookPage key={leftPage.id} page={leftPage} isEditing={isEditing} onSaveContent={handleSaveContent} onSaveImages={handleSaveImages} textColor={textColor} />
                       </AnimatePresence>
                     ) : (
                       <EmptyPageHint onCreate={createPage} />
@@ -186,7 +217,7 @@ export default function Book() {
                       <LoadingIndicator />
                     ) : rightPage ? (
                       <AnimatePresence mode="wait">
-                        <BookPage key={rightPage.id} page={rightPage} isEditing={isEditing} onSaveContent={handleSaveRightContent} onSaveImages={handleSaveRightImages} />
+                        <BookPage key={rightPage.id} page={rightPage} isEditing={isEditing} onSaveContent={handleSaveRightContent} onSaveImages={handleSaveRightImages} textColor={textColor} />
                       </AnimatePresence>
                     ) : (
                       <EmptyPageHint />

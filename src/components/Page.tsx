@@ -10,6 +10,7 @@ interface PageProps {
   isEditing: boolean;
   onSaveContent: (content: string) => void;
   onSaveImages: (images: PageImage[]) => void;
+  textColor: string;
 }
 
 export default function BookPage({
@@ -17,6 +18,7 @@ export default function BookPage({
   isEditing,
   onSaveContent,
   onSaveImages,
+  textColor,
 }: PageProps) {
   return (
     <motion.div
@@ -36,6 +38,7 @@ export default function BookPage({
             initialContent={page.content}
             isEditing={isEditing}
             onSave={onSaveContent}
+            textColor={textColor}
           />
         </div>
 
