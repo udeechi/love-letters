@@ -206,7 +206,7 @@ export default function Book() {
                 </div>
               )}
 
-              <div className="book-spine" />
+              {showPages && <div className="book-spine" />}
             </div>
 
             {phase === "open" && pages.length > 0 && (
