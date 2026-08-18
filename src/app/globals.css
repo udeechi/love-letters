@@ -189,7 +189,7 @@ html, body {
   font-family: var(--font-lora);
   font-size: 15px;
   line-height: 1.8;
-  color: #3d2b1f;
+  color: #3a3a3a;
 }
 
 .tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
@@ -205,7 +205,7 @@ html, body {
 .tiptap-editor .ProseMirror h2,
 .tiptap-editor .ProseMirror h3 {
   font-family: var(--font-playfair);
-  color: #2d1520;
+  color: #2a2a2a;
   margin-top: 0.5em;
   margin-bottom: 0.25em;
 }
@@ -216,11 +216,11 @@ html, body {
 
 .tiptap-editor .ProseMirror strong {
   font-weight: 700;
-  color: #1a0d12;
+  color: #1a1a1a;
 }
 
 .tiptap-editor .ProseMirror em {
-  color: #6b1a3a;
+  color: #555555;
 }
 
 .tiptap-editor .ProseMirror u {
@@ -241,7 +241,7 @@ html, body {
   padding-left: 16px;
   margin-left: 0;
   font-style: italic;
-  color: #6b5a4a;
+  color: #5a5a5a;
 }
 
 .tiptap-editor .ProseMirror hr {

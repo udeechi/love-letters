@@ -18,7 +18,6 @@ export default function ImageUpload({
   onSave,
 }: ImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = async (file: File) => {
@@ -51,15 +50,6 @@ export default function ImageUpload({
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith("image/")) {
-      handleUpload(file);
-    }
-  };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -85,22 +75,7 @@ export default function ImageUpload({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h4 className="text-xs text-[#6b5a4a] font-[family-name:var(--font-playfair)] tracking-wider uppercase">
-          Images
-        </h4>
-        {isEditing && (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-            className="text-xs text-[#d4af37] hover:text-[#e6c84d] transition-colors disabled:opacity-50"
-          >
-            {isUploading ? "Uploading..." : "+ Add Image"}
-          </button>
-        )}
-      </div>
-
+    <div>
       <input
         ref={fileInputRef}
         type="file"
@@ -109,29 +84,6 @@ export default function ImageUpload({
         className="hidden"
       />
 
-      {isEditing && (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-sm p-4 text-center cursor-pointer transition-colors ${
-            dragOver
-              ? "border-[#d4af37]/60 bg-[#d4af37]/10"
-              : "border-[#d4af37]/20 hover:border-[#d4af37]/40"
-          }`}
-        >
-          <p className="text-xs text-[#6b5a4a]">
-            {isUploading
-              ? "Uploading..."
-              : "Drop images here or click to upload"}
-          </p>
-        </div>
-      )}
-
       <AnimatePresence mode="popLayout">
         {images.map((image, index) => (
           <motion.div
@@ -139,12 +91,12 @@ export default function ImageUpload({
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
-            className="relative group"
+            className="relative group mb-3"
           >
             <img
               src={image.url}
               alt={image.caption || `Image ${index + 1}`}
-              className="w-full h-auto rounded-sm shadow-md"
+              className="w-full h-auto rounded-sm"
             />
             {isEditing && (
               <button
@@ -157,6 +109,16 @@ export default function ImageUpload({
           </motion.div>
         ))}
       </AnimatePresence>
+
+      {isEditing && (
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="w-full py-2 border border-dashed border-[#d4af37]/20 text-[#8a7a6a] text-xs rounded-sm hover:border-[#d4af37]/40 hover:text-[#6b5a4a] transition-colors disabled:opacity-50"
+        >
+          {isUploading ? "Uploading..." : "+ Add Image"}
+        </button>
+      )}
     </div>
   );
 }

@@ -31,7 +31,7 @@ export default function PageControls({
 
   return (
     <motion.div
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-6 py-3 bg-[#1a0d12]/80 border border-[#d4af37]/20 rounded-sm backdrop-blur-sm"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-2 bg-[#1a0d12]/80 border border-[#d4af37]/20 rounded-sm backdrop-blur-sm"
       initial={{ y: 40, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.5, type: "spring", stiffness: 200, damping: 25 }}
@@ -39,58 +39,51 @@ export default function PageControls({
       <button
         onClick={onPrev}
         disabled={currentSpread <= 0}
-        className="w-8 h-8 flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/10 rounded-sm disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+        className="w-7 h-7 flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/10 rounded-sm disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M10 3L5 8L10 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
 
-      <div className="flex items-center gap-2 min-w-[100px] justify-center">
-        <span className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-sm">
-          {leftNum}
-        </span>
+      <div className="flex items-center gap-1.5 text-xs font-[family-name:var(--font-playfair)] text-[#d4af37]/70">
+        <span>{leftNum}</span>
         {hasRightPage && (
           <>
-            <span className="text-[#d4af37]/30 text-xs">—</span>
-            <span className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-sm">
-              {rightNum}
-            </span>
+            <span className="text-[#d4af37]/30">—</span>
+            <span>{rightNum}</span>
           </>
         )}
-        <span className="text-[#d4af37]/30 text-xs ml-1">of</span>
-        <span className="font-[family-name:var(--font-playfair)] text-[#d4af37]/60 text-sm">
-          {totalPages}
-        </span>
+        <span className="text-[#d4af37]/20 ml-1">/ {totalPages}</span>
       </div>
 
       <button
         onClick={onNext}
         disabled={currentSpread >= totalSpreads - 1}
-        className="w-8 h-8 flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/10 rounded-sm disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+        className="w-7 h-7 flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/10 rounded-sm disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M6 3L11 8L6 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
 
       {isEditing && (
         <>
-          <div className="w-px h-6 bg-[#d4af37]/20" />
+          <div className="w-px h-4 bg-[#d4af37]/15" />
           <button
             onClick={onAddPage}
             disabled={isSaving}
-            className="px-3 py-1 text-xs text-[#d4af37] hover:bg-[#d4af37]/10 rounded-sm disabled:opacity-50 transition-colors"
+            className="px-2 py-1 text-xs text-[#d4af37]/60 hover:text-[#d4af37] hover:bg-[#d4af37]/10 rounded-sm disabled:opacity-50 transition-colors"
           >
-            + New Page
+            + Page
           </button>
           {totalPages > 1 && (
             <button
               onClick={onDeletePage}
               disabled={isSaving}
-              className="px-3 py-1 text-xs text-[#a82d6a] hover:bg-[#a82d6a]/10 rounded-sm disabled:opacity-50 transition-colors"
+              className="px-2 py-1 text-xs text-[#d4af37]/30 hover:text-[#a82d6a] hover:bg-[#a82d6a]/10 rounded-sm disabled:opacity-50 transition-colors"
             >
-              Delete
+              Del
             </button>
           )}
         </>
