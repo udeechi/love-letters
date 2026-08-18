@@ -16,7 +16,7 @@ const lora = Lora({
 
 export const metadata: Metadata = {
   title: "Love Letters",
-  description: "A private notebook for us",
+  description: "A private notebook made with love",
 };
 
 export default function RootLayout({
