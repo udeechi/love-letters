@@ -43,10 +43,10 @@ html, body {
 
 .book-scene {
   position: relative;
-  width: min(58vw, calc(65vh * 4 / 3));
-  height: min(65vh, calc(58vw * 3 / 4));
-  max-width: 1200px;
-  max-height: 900px;
+  width: min(75vw, calc(85vh * 4 / 3));
+  height: min(85vh, calc(75vw * 3 / 4));
+  max-width: 1560px;
+  max-height: 1170px;
   aspect-ratio: 4 / 3;
 }
 
