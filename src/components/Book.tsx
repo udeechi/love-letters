@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import BookCover from "./BookCover";
 import LockScreen from "./LockScreen";
@@ -11,7 +11,7 @@ import { useBookState } from "@/hooks/useBookState";
 import { useNotebook } from "@/hooks/useNotebook";
 import type { NotebookPage, PageImage } from "@/types";
 
-type OpeningPhase = "locked" | "centered" | "sliding" | "opening" | "open";
+type Phase = "locked" | "cover" | "sliding" | "opening" | "open";
 
 export default function Book() {
   const {
@@ -37,9 +37,15 @@ export default function Book() {
     prevSpread,
   } = useNotebook();
 
-  const [phase, setPhase] = useState<OpeningPhase>("locked");
+  const [phase, setPhase] = useState<Phase>("locked");
   const [isFolding, setIsFolding] = useState(false);
   const [foldDirection, setFoldDirection] = useState<"next" | "prev" | null>(null);
+  const timers = useRef<NodeJS.Timeout[]>([]);
+
+  // Cleanup timers
+  useEffect(() => {
+    return () => timers.current.forEach(clearTimeout);
+  }, []);
 
   // Fetch pages when unlocked
   useEffect(() => {
@@ -48,31 +54,32 @@ export default function Book() {
     }
   }, [isLocked, isInitialized, fetchPages]);
 
-  // Handle unlock → start opening sequence
+  // After unlock → show closed cover
   useEffect(() => {
     if (!isLocked && isInitialized && phase === "locked") {
-      setPhase("centered");
+      setPhase("cover");
     }
   }, [isLocked, isInitialized, phase]);
 
-  // Phase transitions
-  useEffect(() => {
-    if (phase === "centered") {
-      const t = setTimeout(() => setPhase("sliding"), 100);
-      return () => clearTimeout(t);
-    }
+  // Click cover to open
+  const handleCoverClick = useCallback(() => {
+    if (phase !== "cover") return;
+
+    // Phase 1: slide right (600ms)
+    setPhase("sliding");
+
+    // Phase 2: unfold cover after slide finishes (600ms)
+    timers.current.push(
+      setTimeout(() => setPhase("opening"), 600)
+    );
+
+    // Phase 3: fully open after unfold finishes (1200ms)
+    timers.current.push(
+      setTimeout(() => setPhase("open"), 600 + 1200)
+    );
   }, [phase]);
 
-  // Animation complete handlers
-  const handleSlideComplete = useCallback(() => {
-    setPhase("opening");
-  }, []);
-
-  const handleCoverOpenComplete = useCallback(() => {
-    setPhase("open");
-  }, []);
-
-  // Navigation
+  // Page navigation
   const handleNext = useCallback(() => {
     if (isFolding || phase !== "open") return;
     setIsFolding(true);
@@ -86,33 +93,20 @@ export default function Book() {
   }, [isFolding, phase]);
 
   const handleFoldComplete = useCallback(() => {
-    if (foldDirection === "next") {
-      nextSpread();
-    } else if (foldDirection === "prev") {
-      prevSpread();
-    }
+    if (foldDirection === "next") nextSpread();
+    else if (foldDirection === "prev") prevSpread();
     setIsFolding(false);
     setFoldDirection(null);
   }, [foldDirection, nextSpread, prevSpread]);
 
   // Page saves
-  const handleSaveContent = (content: string) => {
-    if (leftPage) savePage(leftPage.id, content);
-  };
-  const handleSaveRightContent = (content: string) => {
-    if (rightPage) savePage(rightPage.id, content);
-  };
-  const handleSaveImages = (images: PageImage[]) => {
-    if (leftPage) savePage(leftPage.id, leftPage.content, images);
-  };
-  const handleSaveRightImages = (images: PageImage[]) => {
-    if (rightPage) savePage(rightPage.id, rightPage.content, images);
-  };
+  const handleSaveContent = (c: string) => { if (leftPage) savePage(leftPage.id, c); };
+  const handleSaveRightContent = (c: string) => { if (rightPage) savePage(rightPage.id, c); };
+  const handleSaveImages = (imgs: PageImage[]) => { if (leftPage) savePage(leftPage.id, leftPage.content, imgs); };
+  const handleSaveRightImages = (imgs: PageImage[]) => { if (rightPage) savePage(rightPage.id, rightPage.content, imgs); };
   const handleDeletePage = async () => {
-    const pageToDelete = rightPage || leftPage;
-    if (pageToDelete && pages.length > 1) {
-      await deletePage(pageToDelete.id);
-    }
+    const target = rightPage || leftPage;
+    if (target && pages.length > 1) await deletePage(target.id);
   };
 
   if (!isInitialized) {
@@ -130,12 +124,9 @@ export default function Book() {
     );
   }
 
-  const showCover = phase === "centered" || phase === "sliding" || phase === "opening";
-  const isCoverOpen = phase === "opening" || phase === "open";
-  const showPages = phase === "sliding" || phase === "opening" || phase === "open";
-
-  // Book scene x position: centered (0%) → slides right (+25%)
-  const sceneX = phase === "centered" ? "0%" : "25%";
+  const showPages = phase === "opening" || phase === "open";
+  const isOpen = phase === "opening" || phase === "open";
+  const sceneX = (phase === "sliding" || phase === "opening" || phase === "open") ? "25%" : "0%";
 
   return (
     <div className="book-viewport">
@@ -152,11 +143,7 @@ export default function Book() {
           >
             <AnimatePresence>
               {isEditing && (
-                <EditToggle
-                  key="edit-toggle"
-                  isEditing={isEditing}
-                  onToggle={toggleEditing}
-                />
+                <EditToggle key="edit-toggle" isEditing={isEditing} onToggle={toggleEditing} />
               )}
             </AnimatePresence>
 
@@ -173,22 +160,17 @@ export default function Book() {
                 whileTap={{ scale: 0.98 }}
               >
                 <span className="text-lg">✏️</span>
-                <span className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-sm tracking-wider">
-                  Edit
-                </span>
+                <span className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-sm tracking-wider">Edit</span>
               </motion.button>
             )}
 
             {/* THE BOOK */}
-            <motion.div
+            <div
               className="book-scene"
-              initial={{ x: "0%" }}
-              animate={{ x: sceneX }}
-              transition={{
-                duration: 0.6,
-                ease: [0.645, 0.045, 0.355, 1],
+              style={{
+                transform: `translateX(${sceneX})`,
+                transition: "transform 0.6s cubic-bezier(0.645, 0.045, 0.355, 1)",
               }}
-              onAnimationComplete={handleSlideComplete}
             >
               {/* LEFT PAGE */}
               {showPages && (
@@ -201,13 +183,7 @@ export default function Book() {
                       <LoadingIndicator />
                     ) : leftPage ? (
                       <AnimatePresence mode="wait">
-                        <BookPage
-                          key={leftPage.id}
-                          page={leftPage}
-                          isEditing={isEditing}
-                          onSaveContent={handleSaveContent}
-                          onSaveImages={handleSaveImages}
-                        />
+                        <BookPage key={leftPage.id} page={leftPage} isEditing={isEditing} onSaveContent={handleSaveContent} onSaveImages={handleSaveImages} />
                       </AnimatePresence>
                     ) : (
                       <EmptyPageHint onCreate={createPage} />
@@ -232,30 +208,18 @@ export default function Book() {
                       ? { rotateY: [-180, 0] }
                       : { rotateY: 0 }
                   }
-                  transition={{
-                    duration: 0.7,
-                    ease: [0.645, 0.045, 0.355, 1],
-                  }}
+                  transition={{ duration: 0.7, ease: [0.645, 0.045, 0.355, 1] }}
                   onAnimationComplete={handleFoldComplete}
                 >
                   <div
                     className="w-full h-full page-surface page-shadow-right"
-                    style={{
-                      backfaceVisibility: "hidden",
-                      WebkitBackfaceVisibility: "hidden",
-                    }}
+                    style={{ backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
                   >
                     {isLoadingPages ? (
                       <LoadingIndicator />
                     ) : rightPage ? (
                       <AnimatePresence mode="wait">
-                        <BookPage
-                          key={rightPage.id}
-                          page={rightPage}
-                          isEditing={isEditing}
-                          onSaveContent={handleSaveRightContent}
-                          onSaveImages={handleSaveRightImages}
-                        />
+                        <BookPage key={rightPage.id} page={rightPage} isEditing={isEditing} onSaveContent={handleSaveRightContent} onSaveImages={handleSaveRightImages} />
                       </AnimatePresence>
                     ) : (
                       <EmptyPageHint />
@@ -264,14 +228,19 @@ export default function Book() {
                 </motion.div>
               )}
 
-              {/* COVER */}
-              {showCover && (
-                <BookCover isOpen={isCoverOpen} onOpenComplete={handleCoverOpenComplete} />
+              {/* COVER - clickable when closed, opens on click */}
+              {(phase === "cover" || phase === "sliding" || phase === "opening") && (
+                <div
+                  onClick={handleCoverClick}
+                  style={{ cursor: phase === "cover" ? "pointer" : "default" }}
+                >
+                  <BookCover isOpen={isOpen} />
+                </div>
               )}
 
               {/* Spine */}
               <div className="book-spine" />
-            </motion.div>
+            </div>
 
             {/* Page navigation */}
             {phase === "open" && pages.length > 0 && (
@@ -296,36 +265,19 @@ export default function Book() {
 
 function LoadingIndicator() {
   return (
-    <motion.div
-      className="w-full h-full flex items-center justify-center"
-      animate={{ opacity: [0.5, 1, 0.5] }}
-      transition={{ duration: 1.5, repeat: Infinity }}
-    >
-      <span className="text-[#6b5a4a] text-sm font-[family-name:var(--font-lora)]">
-        Opening...
-      </span>
+    <motion.div className="w-full h-full flex items-center justify-center" animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 1.5, repeat: Infinity }}>
+      <span className="text-[#6b5a4a] text-sm font-[family-name:var(--font-lora)]">Opening...</span>
     </motion.div>
   );
 }
 
 function EmptyPageHint({ onCreate }: { onCreate?: () => void }) {
   return (
-    <motion.div
-      className="w-full h-full flex items-center justify-center"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-    >
+    <motion.div className="w-full h-full flex items-center justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="text-center px-8">
-        <div className="font-[family-name:var(--font-playfair)] text-[#8a7a6a] text-lg mb-4">
-          Blank page
-        </div>
+        <div className="font-[family-name:var(--font-playfair)] text-[#8a7a6a] text-lg mb-4">Blank page</div>
         {onCreate && (
-          <motion.button
-            onClick={onCreate}
-            className="px-6 py-2 border border-[#d4af37]/30 text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm tracking-wider rounded-sm hover:bg-[#d4af37]/10 transition-colors"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
+          <motion.button onClick={onCreate} className="px-6 py-2 border border-[#d4af37]/30 text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm tracking-wider rounded-sm hover:bg-[#d4af37]/10 transition-colors" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             Write something...
           </motion.button>
         )}
