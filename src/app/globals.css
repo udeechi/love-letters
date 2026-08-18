@@ -43,13 +43,11 @@ html, body {
 
 .book-scene {
   position: relative;
-  width: min(70vw, calc(70vh * 4 / 3));
-  height: min(70vh, calc(70vw * 3 / 4));
-  max-width: 800px;
-  max-height: 600px;
+  width: min(58vw, calc(65vh * 4 / 3));
+  height: min(65vh, calc(58vw * 3 / 4));
+  max-width: 1200px;
+  max-height: 900px;
   aspect-ratio: 4 / 3;
-  transform-style: preserve-3d;
-  filter: drop-shadow(0 20px 60px rgba(0, 0, 0, 0.5));
 }
 
 /* Cover Styling — handled inline in BookCover.tsx now */
