@@ -98,7 +98,6 @@ export default function Book() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.6 }}
           >
-            {/* Edit controls */}
             <AnimatePresence>
               {isEditing && (
                 <EditToggle
@@ -128,28 +127,25 @@ export default function Book() {
               </motion.button>
             )}
 
-            {/* === THE BOOK === */}
-            {/* Container shifts left when open to make room for the opened cover */}
-            <motion.div
-              className="book-scene"
-              animate={{ x: showBook ? "-25%" : 0 }}
-              transition={{
-                duration: 0.8,
-                ease: [0.645, 0.045, 0.355, 1],
-              }}
-            >
-              {/* Page content — always visible, sits at z-1 */}
-              <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 1 }}>
-                {isLoadingPages ? (
-                  <motion.div
-                    className="text-[#6b5a4a] text-sm font-[family-name:var(--font-lora)]"
-                    animate={{ opacity: [0.5, 1, 0.5] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                  >
-                    Opening...
-                  </motion.div>
-                ) : currentPage ? (
-                  <div className="relative w-full h-full page-surface page-shadow-right overflow-hidden">
+            {/* THE BOOK */}
+            <div className="book-scene">
+              {/* RIGHT PAGE - content sits behind cover, right half only */}
+              <div
+                className="absolute top-0 bottom-0 right-0 w-1/2 overflow-hidden"
+                style={{ zIndex: 1 }}
+              >
+                <div className="w-full h-full page-surface page-shadow-right">
+                  {isLoadingPages ? (
+                    <motion.div
+                      className="w-full h-full flex items-center justify-center"
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      <span className="text-[#6b5a4a] text-sm font-[family-name:var(--font-lora)]">
+                        Opening...
+                      </span>
+                    </motion.div>
+                  ) : currentPage ? (
                     <AnimatePresence mode="wait">
                       <BookPage
                         key={currentPage.id}
@@ -159,48 +155,65 @@ export default function Book() {
                         onSaveImages={handleSaveImages}
                       />
                     </AnimatePresence>
-                  </div>
-                ) : (
-                  <motion.div
-                    className="w-full h-full page-surface flex items-center justify-center"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                  >
-                    <div className="text-center">
-                      <div className="font-[family-name:var(--font-playfair)] text-[#8a7a6a] text-xl mb-4">
-                        No pages yet
+                  ) : (
+                    <motion.div
+                      className="w-full h-full flex items-center justify-center"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      <div className="text-center px-8">
+                        <div className="font-[family-name:var(--font-playfair)] text-[#8a7a6a] text-lg mb-4">
+                          No pages yet
+                        </div>
+                        <motion.button
+                          onClick={createPage}
+                          className="px-6 py-2 border border-[#d4af37]/30 text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm tracking-wider rounded-sm hover:bg-[#d4af37]/10 transition-colors"
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                        >
+                          Create First Page
+                        </motion.button>
                       </div>
-                      <motion.button
-                        onClick={createPage}
-                        className="px-6 py-2 border border-[#d4af37]/30 text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm tracking-wider rounded-sm hover:bg-[#d4af37]/10 transition-colors"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        Create First Page
-                      </motion.button>
-                    </div>
-                  </motion.div>
-                )}
+                    </motion.div>
+                  )}
+                </div>
               </div>
 
-              {/* Left cover (back of book) — opens right */}
-              <BookCover side="left" isOpen={showBook} />
+              {/* LEFT PAGE - visible when cover opens (just parchment/lined paper) */}
+              <div
+                className="absolute top-0 bottom-0 left-0 w-1/2 overflow-hidden"
+                style={{
+                  zIndex: 1,
+                  background: "linear-gradient(135deg, #f5edd6 0%, #f2e8d0 30%, #ede0bb 100%)",
+                }}
+              >
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background: "repeating-linear-gradient(transparent, transparent 31px, rgba(168,138,100,0.12) 31px, rgba(168,138,100,0.12) 32px)",
+                  }}
+                />
+                <div
+                  className="absolute top-0 bottom-0 w-[1px] pointer-events-none"
+                  style={{
+                    left: "48px",
+                    background: "rgba(180,100,100,0.25)",
+                  }}
+                />
+                <div
+                  className="absolute top-0 bottom-0 right-0 w-8 pointer-events-none"
+                  style={{
+                    background: "linear-gradient(to left, rgba(0,0,0,0.1), transparent)",
+                  }}
+                />
+              </div>
 
-              {/* Right cover (front of book) — opens left */}
-              <BookCover side="right" isOpen={showBook}>
-                <div className="text-center">
-                  <div className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-2xl tracking-[0.1em] opacity-80">
-                    Love
-                  </div>
-                  <div className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-2xl tracking-[0.1em] opacity-80">
-                    Letters
-                  </div>
-                </div>
-              </BookCover>
+              {/* FRONT COVER - full width, swings open to the left */}
+              <BookCover isOpen={showBook} />
 
               {/* Spine */}
               <div className="book-spine" />
-            </motion.div>
+            </div>
 
             {/* Page navigation */}
             {!isLocked && totalPages > 0 && (
