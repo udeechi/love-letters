@@ -39,6 +39,7 @@ export default function BookPage({
             isEditing={isEditing}
             onSave={onSaveContent}
             textColor={textColor}
+            pageId={page.id}
           />
         </div>
 
