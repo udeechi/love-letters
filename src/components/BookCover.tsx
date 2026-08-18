@@ -1,35 +1,54 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useRef, useEffect } from "react";
+import { animate } from "animejs";
 
 interface BookCoverProps {
   isOpen: boolean;
 }
 
 export default function BookCover({ isOpen }: BookCoverProps) {
+  const frontRef = useRef<HTMLDivElement>(null);
+  const backRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!frontRef.current || !backRef.current) return;
+
+    const front = animate(frontRef.current, {
+      rotateY: isOpen ? -180 : 0,
+      duration: 1200,
+      ease: "inOutCubic",
+    });
+
+    const back = animate(backRef.current, {
+      rotateY: isOpen ? 0 : 180,
+      duration: 1200,
+      ease: "inOutCubic",
+    });
+
+    return () => {
+      front.cancel();
+      back.cancel();
+    };
+  }, [isOpen]);
+
   return (
-    <motion.div
+    <div
       className="absolute inset-0"
       style={{
-        transformOrigin: "left center",
         transformStyle: "preserve-3d" as const,
         zIndex: isOpen ? 0 : 20,
-      }}
-      initial={{ rotateY: 0 }}
-      animate={{ rotateY: isOpen ? -180 : 0 }}
-      transition={{
-        duration: 1.2,
-        ease: [0.645, 0.045, 0.355, 1],
       }}
     >
       {/* FRONT FACE */}
       <div
+        ref={frontRef}
         className="absolute inset-0 overflow-hidden"
         style={{
           background: "linear-gradient(135deg, #2d0a1b 0%, #3d1528 40%, #4a1028 100%)",
           backfaceVisibility: "hidden",
           WebkitBackfaceVisibility: "hidden",
-          transform: "translateZ(0.5px)",
+          transformOrigin: "left center",
           borderRadius: "8px",
         }}
       >
@@ -58,13 +77,15 @@ export default function BookCover({ isOpen }: BookCoverProps) {
 
       {/* BACK FACE - transparent, pages show through */}
       <div
+        ref={backRef}
         className="absolute inset-0"
         style={{
           backfaceVisibility: "hidden",
           WebkitBackfaceVisibility: "hidden",
-          transform: "rotateY(180deg) translateZ(0.5px)",
+          transformOrigin: "left center",
+          transform: "rotateY(180deg)",
         }}
       />
-    </motion.div>
+    </div>
   );
 }
