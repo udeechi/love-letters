@@ -15,14 +15,12 @@ export default function Book() {
   const {
     isLocked,
     isEditing,
-    isLoading,
     isInitialized,
     unlock,
     toggleEditing,
   } = useBookState();
 
   const {
-    pages,
     currentPage,
     currentPageIndex,
     totalPages,
@@ -100,8 +98,9 @@ export default function Book() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.6 }}
           >
+            {/* Edit controls */}
             <AnimatePresence>
-              {isEditing && !isLocked && (
+              {isEditing && (
                 <EditToggle
                   key="edit-toggle"
                   isEditing={isEditing}
@@ -110,7 +109,7 @@ export default function Book() {
               )}
             </AnimatePresence>
 
-            {!isEditing && !isLocked && (
+            {!isEditing && (
               <motion.button
                 key="edit-entry"
                 className="fixed top-6 left-6 z-50 flex items-center gap-2 px-4 py-2 bg-[#2d0a1b]/80 border border-[#d4af37]/30 rounded-sm backdrop-blur-sm hover:bg-[#3d1528]/80 hover:border-[#d4af37]/50 transition-all duration-300"
@@ -129,9 +128,18 @@ export default function Book() {
               </motion.button>
             )}
 
-            <div className="book-scene">
-              {/* Page content — behind covers when closed, visible when open */}
-              <div className="absolute inset-0 flex items-center justify-center z-[1]">
+            {/* === THE BOOK === */}
+            {/* Container shifts left when open to make room for the opened cover */}
+            <motion.div
+              className="book-scene"
+              animate={{ x: showBook ? "-25%" : 0 }}
+              transition={{
+                duration: 0.8,
+                ease: [0.645, 0.045, 0.355, 1],
+              }}
+            >
+              {/* Page content — always visible, sits at z-1 */}
+              <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 1 }}>
                 {isLoadingPages ? (
                   <motion.div
                     className="text-[#6b5a4a] text-sm font-[family-name:var(--font-lora)]"
@@ -175,7 +183,10 @@ export default function Book() {
                 )}
               </div>
 
+              {/* Left cover (back of book) — opens right */}
               <BookCover side="left" isOpen={showBook} />
+
+              {/* Right cover (front of book) — opens left */}
               <BookCover side="right" isOpen={showBook}>
                 <div className="text-center">
                   <div className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-2xl tracking-[0.1em] opacity-80">
@@ -187,9 +198,11 @@ export default function Book() {
                 </div>
               </BookCover>
 
+              {/* Spine */}
               <div className="book-spine" />
-            </div>
+            </motion.div>
 
+            {/* Page navigation */}
             {!isLocked && totalPages > 0 && (
               <PageControls
                 currentPage={currentPageIndex}
