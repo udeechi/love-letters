@@ -4,9 +4,10 @@ import { motion } from "framer-motion";
 
 interface BookCoverProps {
   isOpen: boolean;
+  onOpenComplete?: () => void;
 }
 
-export default function BookCover({ isOpen }: BookCoverProps) {
+export default function BookCover({ isOpen, onOpenComplete }: BookCoverProps) {
   return (
     <motion.div
       className="absolute inset-0"
@@ -18,11 +19,14 @@ export default function BookCover({ isOpen }: BookCoverProps) {
       initial={{ rotateY: 0 }}
       animate={{ rotateY: isOpen ? -180 : 0 }}
       transition={{
-        duration: 1,
+        duration: 1.2,
         ease: [0.645, 0.045, 0.355, 1],
       }}
+      onAnimationComplete={() => {
+        if (isOpen) onOpenComplete?.();
+      }}
     >
-      {/* FRONT FACE - leather cover with title */}
+      {/* FRONT FACE */}
       <div
         className="absolute inset-0 overflow-hidden"
         style={{
@@ -71,13 +75,14 @@ export default function BookCover({ isOpen }: BookCoverProps) {
         />
       </div>
 
-      {/* BACK FACE - transparent, pages sit on top of this */}
+      {/* BACK FACE - transparent */}
       <div
         className="absolute inset-0"
         style={{
           backfaceVisibility: "hidden",
           WebkitBackfaceVisibility: "hidden",
           transform: "rotateY(180deg) translateZ(0.5px)",
+          background: "transparent",
         }}
       />
     </motion.div>

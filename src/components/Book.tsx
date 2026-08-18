@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import BookCover from "./BookCover";
 import LockScreen from "./LockScreen";
@@ -10,6 +10,8 @@ import PageControls from "./PageControls";
 import { useBookState } from "@/hooks/useBookState";
 import { useNotebook } from "@/hooks/useNotebook";
 import type { NotebookPage, PageImage } from "@/types";
+
+type OpeningPhase = "locked" | "centered" | "sliding" | "opening" | "open";
 
 export default function Book() {
   const {
@@ -35,38 +37,53 @@ export default function Book() {
     prevSpread,
   } = useNotebook();
 
-  const [showBook, setShowBook] = useState(false);
-  const [hasOpened, setHasOpened] = useState(false);
+  const [phase, setPhase] = useState<OpeningPhase>("locked");
   const [isFolding, setIsFolding] = useState(false);
   const [foldDirection, setFoldDirection] = useState<"next" | "prev" | null>(null);
 
+  // Fetch pages when unlocked
   useEffect(() => {
     if (!isLocked && isInitialized) {
       fetchPages();
     }
   }, [isLocked, isInitialized, fetchPages]);
 
+  // Handle unlock → start opening sequence
   useEffect(() => {
-    if (!isLocked && !hasOpened) {
-      const timer = setTimeout(() => {
-        setShowBook(true);
-        setHasOpened(true);
-      }, 400);
-      return () => clearTimeout(timer);
+    if (!isLocked && isInitialized && phase === "locked") {
+      setPhase("centered");
     }
-  }, [isLocked, hasOpened]);
+  }, [isLocked, isInitialized, phase]);
 
+  // Phase transitions
+  useEffect(() => {
+    if (phase === "centered") {
+      const t = setTimeout(() => setPhase("sliding"), 100);
+      return () => clearTimeout(t);
+    }
+  }, [phase]);
+
+  // Animation complete handlers
+  const handleSlideComplete = useCallback(() => {
+    setPhase("opening");
+  }, []);
+
+  const handleCoverOpenComplete = useCallback(() => {
+    setPhase("open");
+  }, []);
+
+  // Navigation
   const handleNext = useCallback(() => {
-    if (isFolding) return;
+    if (isFolding || phase !== "open") return;
     setIsFolding(true);
     setFoldDirection("next");
-  }, [isFolding]);
+  }, [isFolding, phase]);
 
   const handlePrev = useCallback(() => {
-    if (isFolding) return;
+    if (isFolding || phase !== "open") return;
     setIsFolding(true);
     setFoldDirection("prev");
-  }, [isFolding]);
+  }, [isFolding, phase]);
 
   const handleFoldComplete = useCallback(() => {
     if (foldDirection === "next") {
@@ -78,22 +95,19 @@ export default function Book() {
     setFoldDirection(null);
   }, [foldDirection, nextSpread, prevSpread]);
 
+  // Page saves
   const handleSaveContent = (content: string) => {
     if (leftPage) savePage(leftPage.id, content);
   };
-
   const handleSaveRightContent = (content: string) => {
     if (rightPage) savePage(rightPage.id, content);
   };
-
   const handleSaveImages = (images: PageImage[]) => {
     if (leftPage) savePage(leftPage.id, leftPage.content, images);
   };
-
   const handleSaveRightImages = (images: PageImage[]) => {
     if (rightPage) savePage(rightPage.id, rightPage.content, images);
   };
-
   const handleDeletePage = async () => {
     const pageToDelete = rightPage || leftPage;
     if (pageToDelete && pages.length > 1) {
@@ -116,15 +130,17 @@ export default function Book() {
     );
   }
 
-  const leftPageIndex = currentSpread * 2;
-  const rightPageIndex = currentSpread * 2 + 1;
-  const canGoNext = currentSpread < totalSpreads - 1;
-  const canGoPrev = currentSpread > 0;
+  const showCover = phase === "centered" || phase === "sliding" || phase === "opening";
+  const isCoverOpen = phase === "opening" || phase === "open";
+  const showPages = phase === "sliding" || phase === "opening" || phase === "open";
+
+  // Book scene x position: centered (0%) → slides right (+25%)
+  const sceneX = phase === "centered" ? "0%" : "25%";
 
   return (
     <div className="book-viewport">
       <AnimatePresence mode="wait">
-        {isLocked ? (
+        {isLocked && phase === "locked" ? (
           <LockScreen key="lock" onUnlock={unlock} />
         ) : (
           <motion.div
@@ -132,7 +148,7 @@ export default function Book() {
             className="relative w-full h-full flex items-center justify-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.4 }}
           >
             <AnimatePresence>
               {isEditing && (
@@ -144,7 +160,7 @@ export default function Book() {
               )}
             </AnimatePresence>
 
-            {!isEditing && (
+            {!isEditing && phase === "open" && (
               <motion.button
                 key="edit-entry"
                 className="fixed top-6 left-6 z-50 flex items-center gap-2 px-4 py-2 bg-[#2d0a1b]/80 border border-[#d4af37]/30 rounded-sm backdrop-blur-sm hover:bg-[#3d1528]/80 hover:border-[#d4af37]/50 transition-all duration-300"
@@ -164,83 +180,101 @@ export default function Book() {
             )}
 
             {/* THE BOOK */}
-            <div className="book-scene">
+            <motion.div
+              className="book-scene"
+              initial={{ x: "0%" }}
+              animate={{ x: sceneX }}
+              transition={{
+                duration: 0.6,
+                ease: [0.645, 0.045, 0.355, 1],
+              }}
+              onAnimationComplete={handleSlideComplete}
+            >
               {/* LEFT PAGE */}
-              <div
-                className="absolute top-0 bottom-0 left-0 w-1/2 overflow-hidden"
-                style={{ zIndex: 1 }}
-              >
-                <div className="w-full h-full page-surface page-shadow-left">
-                  {isLoadingPages ? (
-                    <LoadingIndicator />
-                  ) : leftPage ? (
-                    <AnimatePresence mode="wait">
-                      <BookPage
-                        key={leftPage.id}
-                        page={leftPage}
-                        isEditing={isEditing}
-                        onSaveContent={handleSaveContent}
-                        onSaveImages={handleSaveImages}
-                      />
-                    </AnimatePresence>
-                  ) : (
-                    <EmptyPageHint onCreate={createPage} />
-                  )}
-                </div>
-              </div>
-
-              {/* RIGHT PAGE — folds when navigating */}
-              <motion.div
-                className="absolute top-0 bottom-0 right-0 w-1/2 overflow-hidden"
-                style={{
-                  zIndex: isFolding && foldDirection === "next" ? 15 : 2,
-                  transformOrigin: "left center",
-                  transformStyle: "preserve-3d" as const,
-                }}
-                animate={
-                  isFolding && foldDirection === "next"
-                    ? { rotateY: [0, -180] }
-                    : isFolding && foldDirection === "prev"
-                    ? { rotateY: [-180, 0] }
-                    : { rotateY: 0 }
-                }
-                transition={{
-                  duration: 0.7,
-                  ease: [0.645, 0.045, 0.355, 1],
-                }}
-                onAnimationComplete={handleFoldComplete}
-              >
+              {showPages && (
                 <div
-                  className="w-full h-full page-surface page-shadow-right"
-                  style={{
-                    backfaceVisibility: "hidden",
-                    WebkitBackfaceVisibility: "hidden",
-                  }}
+                  className="absolute top-0 bottom-0 left-0 w-1/2 overflow-hidden"
+                  style={{ zIndex: 1 }}
                 >
-                  {isLoadingPages ? (
-                    <LoadingIndicator />
-                  ) : rightPage ? (
-                    <AnimatePresence mode="wait">
-                      <BookPage
-                        key={rightPage.id}
-                        page={rightPage}
-                        isEditing={isEditing}
-                        onSaveContent={handleSaveRightContent}
-                        onSaveImages={handleSaveRightImages}
-                      />
-                    </AnimatePresence>
-                  ) : (
-                    <EmptyPageHint />
-                  )}
+                  <div className="w-full h-full page-surface page-shadow-left">
+                    {isLoadingPages ? (
+                      <LoadingIndicator />
+                    ) : leftPage ? (
+                      <AnimatePresence mode="wait">
+                        <BookPage
+                          key={leftPage.id}
+                          page={leftPage}
+                          isEditing={isEditing}
+                          onSaveContent={handleSaveContent}
+                          onSaveImages={handleSaveImages}
+                        />
+                      </AnimatePresence>
+                    ) : (
+                      <EmptyPageHint onCreate={createPage} />
+                    )}
+                  </div>
                 </div>
-              </motion.div>
+              )}
 
-              {/* Spine shadow */}
+              {/* RIGHT PAGE */}
+              {showPages && (
+                <motion.div
+                  className="absolute top-0 bottom-0 right-0 w-1/2 overflow-hidden"
+                  style={{
+                    zIndex: isFolding && foldDirection === "next" ? 15 : 2,
+                    transformOrigin: "left center",
+                    transformStyle: "preserve-3d" as const,
+                  }}
+                  animate={
+                    isFolding && foldDirection === "next"
+                      ? { rotateY: [0, -180] }
+                      : isFolding && foldDirection === "prev"
+                      ? { rotateY: [-180, 0] }
+                      : { rotateY: 0 }
+                  }
+                  transition={{
+                    duration: 0.7,
+                    ease: [0.645, 0.045, 0.355, 1],
+                  }}
+                  onAnimationComplete={handleFoldComplete}
+                >
+                  <div
+                    className="w-full h-full page-surface page-shadow-right"
+                    style={{
+                      backfaceVisibility: "hidden",
+                      WebkitBackfaceVisibility: "hidden",
+                    }}
+                  >
+                    {isLoadingPages ? (
+                      <LoadingIndicator />
+                    ) : rightPage ? (
+                      <AnimatePresence mode="wait">
+                        <BookPage
+                          key={rightPage.id}
+                          page={rightPage}
+                          isEditing={isEditing}
+                          onSaveContent={handleSaveRightContent}
+                          onSaveImages={handleSaveRightImages}
+                        />
+                      </AnimatePresence>
+                    ) : (
+                      <EmptyPageHint />
+                    )}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* COVER */}
+              {showCover && (
+                <BookCover isOpen={isCoverOpen} onOpenComplete={handleCoverOpenComplete} />
+              )}
+
+              {/* Spine */}
               <div className="book-spine" />
-            </div>
+            </motion.div>
 
             {/* Page navigation */}
-            {!isLocked && pages.length > 0 && (
+            {phase === "open" && pages.length > 0 && (
               <PageControls
                 currentSpread={currentSpread}
                 totalSpreads={totalSpreads}
