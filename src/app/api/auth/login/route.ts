@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { verifyPassword } from "@/lib/password";
 import { signJWT } from "@/lib/jwt";
 import { getTokenName } from "@/lib/auth";
@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) {
       return NextResponse.json(
         { success: false, error: "Server misconfigured" },

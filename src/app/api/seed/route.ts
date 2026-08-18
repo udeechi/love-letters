@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { hashPassword } from "@/lib/password";
 
 export async function POST() {
+  const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) {
     return NextResponse.json(
       { error: "Supabase not configured" },
@@ -11,7 +12,6 @@ export async function POST() {
   }
 
   try {
-    // Check if notebook already exists
     const { data: existing } = await supabaseAdmin
       .from("notebooks")
       .select("id")
@@ -25,10 +25,8 @@ export async function POST() {
       });
     }
 
-    // Hash password
     const passwordHash = await hashPassword("iloveu");
 
-    // Create notebook
     const { data: notebook, error: notebookError } = await supabaseAdmin
       .from("notebooks")
       .insert({
@@ -45,7 +43,6 @@ export async function POST() {
       );
     }
 
-    // Create first page
     const { error: pageError } = await supabaseAdmin.from("pages").insert({
       notebook_id: notebook.id,
       page_number: 1,
