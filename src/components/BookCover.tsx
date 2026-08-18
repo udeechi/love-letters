@@ -22,7 +22,7 @@ export default function BookCover({ isOpen }: BookCoverProps) {
         ease: [0.645, 0.045, 0.355, 1],
       }}
     >
-      {/* FRONT FACE - visible when closed */}
+      {/* FRONT FACE - leather cover with title */}
       <div
         className="absolute inset-0 overflow-hidden"
         style={{
@@ -30,7 +30,7 @@ export default function BookCover({ isOpen }: BookCoverProps) {
           backfaceVisibility: "hidden",
           WebkitBackfaceVisibility: "hidden",
           transform: "translateZ(0.5px)",
-          borderRadius: "8px 8px 8px 8px",
+          borderRadius: "8px",
         }}
       >
         <div
@@ -71,40 +71,15 @@ export default function BookCover({ isOpen }: BookCoverProps) {
         />
       </div>
 
-      {/* BACK FACE - visible when open (inside of cover = left page) */}
+      {/* BACK FACE - transparent, pages sit on top of this */}
       <div
-        className="absolute inset-0 overflow-hidden"
+        className="absolute inset-0"
         style={{
-          background: "linear-gradient(135deg, #f5edd6 0%, #f2e8d0 30%, #ede0bb 100%)",
           backfaceVisibility: "hidden",
           WebkitBackfaceVisibility: "hidden",
           transform: "rotateY(180deg) translateZ(0.5px)",
-          borderRadius: "8px 8px 8px 8px",
         }}
-      >
-        {/* Lined paper texture */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: "repeating-linear-gradient(transparent, transparent 31px, rgba(168,138,100,0.12) 31px, rgba(168,138,100,0.12) 32px)",
-          }}
-        />
-        {/* Margin line */}
-        <div
-          className="absolute top-0 bottom-0 w-[1px] pointer-events-none"
-          style={{
-            left: "48px",
-            background: "rgba(180,100,100,0.25)",
-          }}
-        />
-        {/* Spine shadow on right edge */}
-        <div
-          className="absolute top-0 bottom-0 right-0 w-8 pointer-events-none"
-          style={{
-            background: "linear-gradient(to left, rgba(0,0,0,0.1), transparent)",
-          }}
-        />
-      </div>
+      />
     </motion.div>
   );
 }

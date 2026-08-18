@@ -3,7 +3,8 @@
 import { motion } from "framer-motion";
 
 interface PageControlsProps {
-  currentPage: number;
+  currentSpread: number;
+  totalSpreads: number;
   totalPages: number;
   onPrev: () => void;
   onNext: () => void;
@@ -14,7 +15,8 @@ interface PageControlsProps {
 }
 
 export default function PageControls({
-  currentPage,
+  currentSpread,
+  totalSpreads,
   totalPages,
   onPrev,
   onNext,
@@ -23,6 +25,10 @@ export default function PageControls({
   isEditing,
   isSaving,
 }: PageControlsProps) {
+  const leftNum = currentSpread * 2 + 1;
+  const rightNum = currentSpread * 2 + 2;
+  const hasRightPage = rightNum <= totalPages;
+
   return (
     <motion.div
       className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-6 py-3 bg-[#1a0d12]/80 border border-[#d4af37]/20 rounded-sm backdrop-blur-sm"
@@ -32,7 +38,7 @@ export default function PageControls({
     >
       <button
         onClick={onPrev}
-        disabled={currentPage <= 0}
+        disabled={currentSpread <= 0}
         className="w-8 h-8 flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/10 rounded-sm disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -42,9 +48,17 @@ export default function PageControls({
 
       <div className="flex items-center gap-2 min-w-[100px] justify-center">
         <span className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-sm">
-          {currentPage + 1}
+          {leftNum}
         </span>
-        <span className="text-[#d4af37]/30 text-xs">of</span>
+        {hasRightPage && (
+          <>
+            <span className="text-[#d4af37]/30 text-xs">—</span>
+            <span className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-sm">
+              {rightNum}
+            </span>
+          </>
+        )}
+        <span className="text-[#d4af37]/30 text-xs ml-1">of</span>
         <span className="font-[family-name:var(--font-playfair)] text-[#d4af37]/60 text-sm">
           {totalPages}
         </span>
@@ -52,7 +66,7 @@ export default function PageControls({
 
       <button
         onClick={onNext}
-        disabled={currentPage >= totalPages - 1}
+        disabled={currentSpread >= totalSpreads - 1}
         className="w-8 h-8 flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/10 rounded-sm disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

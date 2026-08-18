@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import BookCover from "./BookCover";
 import LockScreen from "./LockScreen";
@@ -9,7 +9,7 @@ import EditToggle from "./EditToggle";
 import PageControls from "./PageControls";
 import { useBookState } from "@/hooks/useBookState";
 import { useNotebook } from "@/hooks/useNotebook";
-import type { PageImage } from "@/types";
+import type { NotebookPage, PageImage } from "@/types";
 
 export default function Book() {
   const {
@@ -21,20 +21,24 @@ export default function Book() {
   } = useBookState();
 
   const {
-    currentPage,
-    currentPageIndex,
-    totalPages,
+    pages,
+    currentSpread,
+    totalSpreads,
+    leftPage,
+    rightPage,
     isLoading: isLoadingPages,
     fetchPages,
     savePage,
     createPage,
     deletePage,
-    nextPage,
-    prevPage,
+    nextSpread,
+    prevSpread,
   } = useNotebook();
 
   const [showBook, setShowBook] = useState(false);
   const [hasOpened, setHasOpened] = useState(false);
+  const [isFolding, setIsFolding] = useState(false);
+  const [foldDirection, setFoldDirection] = useState<"next" | "prev" | null>(null);
 
   useEffect(() => {
     if (!isLocked && isInitialized) {
@@ -52,21 +56,48 @@ export default function Book() {
     }
   }, [isLocked, hasOpened]);
 
-  const handleSaveContent = (content: string) => {
-    if (currentPage) {
-      savePage(currentPage.id, content);
+  const handleNext = useCallback(() => {
+    if (isFolding) return;
+    setIsFolding(true);
+    setFoldDirection("next");
+  }, [isFolding]);
+
+  const handlePrev = useCallback(() => {
+    if (isFolding) return;
+    setIsFolding(true);
+    setFoldDirection("prev");
+  }, [isFolding]);
+
+  const handleFoldComplete = useCallback(() => {
+    if (foldDirection === "next") {
+      nextSpread();
+    } else if (foldDirection === "prev") {
+      prevSpread();
     }
+    setIsFolding(false);
+    setFoldDirection(null);
+  }, [foldDirection, nextSpread, prevSpread]);
+
+  const handleSaveContent = (content: string) => {
+    if (leftPage) savePage(leftPage.id, content);
+  };
+
+  const handleSaveRightContent = (content: string) => {
+    if (rightPage) savePage(rightPage.id, content);
   };
 
   const handleSaveImages = (images: PageImage[]) => {
-    if (currentPage) {
-      savePage(currentPage.id, currentPage.content, images);
-    }
+    if (leftPage) savePage(leftPage.id, leftPage.content, images);
+  };
+
+  const handleSaveRightImages = (images: PageImage[]) => {
+    if (rightPage) savePage(rightPage.id, rightPage.content, images);
   };
 
   const handleDeletePage = async () => {
-    if (currentPage && totalPages > 1) {
-      await deletePage(currentPage.id);
+    const pageToDelete = rightPage || leftPage;
+    if (pageToDelete && pages.length > 1) {
+      await deletePage(pageToDelete.id);
     }
   };
 
@@ -84,6 +115,11 @@ export default function Book() {
       </div>
     );
   }
+
+  const leftPageIndex = currentSpread * 2;
+  const rightPageIndex = currentSpread * 2 + 1;
+  const canGoNext = currentSpread < totalSpreads - 1;
+  const canGoPrev = currentSpread > 0;
 
   return (
     <div className="book-viewport">
@@ -129,99 +165,88 @@ export default function Book() {
 
             {/* THE BOOK */}
             <div className="book-scene">
-              {/* RIGHT PAGE - content sits behind cover, right half only */}
+              {/* LEFT PAGE */}
               <div
-                className="absolute top-0 bottom-0 right-0 w-1/2 overflow-hidden"
+                className="absolute top-0 bottom-0 left-0 w-1/2 overflow-hidden"
                 style={{ zIndex: 1 }}
               >
-                <div className="w-full h-full page-surface page-shadow-right">
+                <div className="w-full h-full page-surface page-shadow-left">
                   {isLoadingPages ? (
-                    <motion.div
-                      className="w-full h-full flex items-center justify-center"
-                      animate={{ opacity: [0.5, 1, 0.5] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
-                    >
-                      <span className="text-[#6b5a4a] text-sm font-[family-name:var(--font-lora)]">
-                        Opening...
-                      </span>
-                    </motion.div>
-                  ) : currentPage ? (
+                    <LoadingIndicator />
+                  ) : leftPage ? (
                     <AnimatePresence mode="wait">
                       <BookPage
-                        key={currentPage.id}
-                        page={currentPage}
+                        key={leftPage.id}
+                        page={leftPage}
                         isEditing={isEditing}
                         onSaveContent={handleSaveContent}
                         onSaveImages={handleSaveImages}
                       />
                     </AnimatePresence>
                   ) : (
-                    <motion.div
-                      className="w-full h-full flex items-center justify-center"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                    >
-                      <div className="text-center px-8">
-                        <div className="font-[family-name:var(--font-playfair)] text-[#8a7a6a] text-lg mb-4">
-                          No pages yet
-                        </div>
-                        <motion.button
-                          onClick={createPage}
-                          className="px-6 py-2 border border-[#d4af37]/30 text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm tracking-wider rounded-sm hover:bg-[#d4af37]/10 transition-colors"
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                        >
-                          Create First Page
-                        </motion.button>
-                      </div>
-                    </motion.div>
+                    <EmptyPageHint onCreate={createPage} />
                   )}
                 </div>
               </div>
 
-              {/* LEFT PAGE - visible when cover opens (just parchment/lined paper) */}
-              <div
-                className="absolute top-0 bottom-0 left-0 w-1/2 overflow-hidden"
+              {/* RIGHT PAGE — folds when navigating */}
+              <motion.div
+                className="absolute top-0 bottom-0 right-0 w-1/2 overflow-hidden"
                 style={{
-                  zIndex: 1,
-                  background: "linear-gradient(135deg, #f5edd6 0%, #f2e8d0 30%, #ede0bb 100%)",
+                  zIndex: isFolding && foldDirection === "next" ? 15 : 2,
+                  transformOrigin: "left center",
+                  transformStyle: "preserve-3d" as const,
                 }}
+                animate={
+                  isFolding && foldDirection === "next"
+                    ? { rotateY: [0, -180] }
+                    : isFolding && foldDirection === "prev"
+                    ? { rotateY: [-180, 0] }
+                    : { rotateY: 0 }
+                }
+                transition={{
+                  duration: 0.7,
+                  ease: [0.645, 0.045, 0.355, 1],
+                }}
+                onAnimationComplete={handleFoldComplete}
               >
                 <div
-                  className="absolute inset-0 pointer-events-none"
+                  className="w-full h-full page-surface page-shadow-right"
                   style={{
-                    background: "repeating-linear-gradient(transparent, transparent 31px, rgba(168,138,100,0.12) 31px, rgba(168,138,100,0.12) 32px)",
+                    backfaceVisibility: "hidden",
+                    WebkitBackfaceVisibility: "hidden",
                   }}
-                />
-                <div
-                  className="absolute top-0 bottom-0 w-[1px] pointer-events-none"
-                  style={{
-                    left: "48px",
-                    background: "rgba(180,100,100,0.25)",
-                  }}
-                />
-                <div
-                  className="absolute top-0 bottom-0 right-0 w-8 pointer-events-none"
-                  style={{
-                    background: "linear-gradient(to left, rgba(0,0,0,0.1), transparent)",
-                  }}
-                />
-              </div>
+                >
+                  {isLoadingPages ? (
+                    <LoadingIndicator />
+                  ) : rightPage ? (
+                    <AnimatePresence mode="wait">
+                      <BookPage
+                        key={rightPage.id}
+                        page={rightPage}
+                        isEditing={isEditing}
+                        onSaveContent={handleSaveRightContent}
+                        onSaveImages={handleSaveRightImages}
+                      />
+                    </AnimatePresence>
+                  ) : (
+                    <EmptyPageHint />
+                  )}
+                </div>
+              </motion.div>
 
-              {/* FRONT COVER - full width, swings open to the left */}
-              <BookCover isOpen={showBook} />
-
-              {/* Spine */}
+              {/* Spine shadow */}
               <div className="book-spine" />
             </div>
 
             {/* Page navigation */}
-            {!isLocked && totalPages > 0 && (
+            {!isLocked && pages.length > 0 && (
               <PageControls
-                currentPage={currentPageIndex}
-                totalPages={totalPages}
-                onPrev={prevPage}
-                onNext={nextPage}
+                currentSpread={currentSpread}
+                totalSpreads={totalSpreads}
+                totalPages={pages.length}
+                onPrev={handlePrev}
+                onNext={handleNext}
                 onAddPage={createPage}
                 onDeletePage={handleDeletePage}
                 isEditing={isEditing}
@@ -232,5 +257,45 @@ export default function Book() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function LoadingIndicator() {
+  return (
+    <motion.div
+      className="w-full h-full flex items-center justify-center"
+      animate={{ opacity: [0.5, 1, 0.5] }}
+      transition={{ duration: 1.5, repeat: Infinity }}
+    >
+      <span className="text-[#6b5a4a] text-sm font-[family-name:var(--font-lora)]">
+        Opening...
+      </span>
+    </motion.div>
+  );
+}
+
+function EmptyPageHint({ onCreate }: { onCreate?: () => void }) {
+  return (
+    <motion.div
+      className="w-full h-full flex items-center justify-center"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+    >
+      <div className="text-center px-8">
+        <div className="font-[family-name:var(--font-playfair)] text-[#8a7a6a] text-lg mb-4">
+          Blank page
+        </div>
+        {onCreate && (
+          <motion.button
+            onClick={onCreate}
+            className="px-6 py-2 border border-[#d4af37]/30 text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm tracking-wider rounded-sm hover:bg-[#d4af37]/10 transition-colors"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            Write something...
+          </motion.button>
+        )}
+      </div>
+    </motion.div>
   );
 }
