@@ -130,9 +130,8 @@ export default function Book() {
             )}
 
             <div className="book-scene">
-              <BookCover side="left" isOpen={showBook} />
-
-              <div className="absolute inset-0 flex items-center justify-center z-10">
+              {/* Page content — behind covers when closed, visible when open */}
+              <div className="absolute inset-0 flex items-center justify-center z-[1]">
                 {isLoadingPages ? (
                   <motion.div
                     className="text-[#6b5a4a] text-sm font-[family-name:var(--font-lora)]"
@@ -176,6 +175,7 @@ export default function Book() {
                 )}
               </div>
 
+              <BookCover side="left" isOpen={showBook} />
               <BookCover side="right" isOpen={showBook}>
                 <div className="text-center">
                   <div className="font-[family-name:var(--font-playfair)] text-[#d4af37] text-2xl tracking-[0.1em] opacity-80">
