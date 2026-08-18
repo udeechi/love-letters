@@ -6,7 +6,7 @@ import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 interface PageContentProps {
   initialContent: string;
@@ -22,7 +22,9 @@ export default function PageContent({
   textColor,
 }: PageContentProps) {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const prevTextColorRef = useRef(textColor);
+  const isTypingRef = useRef(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavedContentRef = useRef(initialContent);
 
   const editor = useEditor({
     extensions: [
@@ -48,20 +50,27 @@ export default function PageContent({
       },
     },
     onUpdate: ({ editor: ed }) => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+      isTypingRef.current = true;
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        isTypingRef.current = false;
+      }, 2000);
+
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
-        onSave(ed.getHTML());
+        const html = ed.getHTML();
+        lastSavedContentRef.current = html;
+        onSave(html);
       }, 1000);
     },
   });
 
   useEffect(() => {
-    if (editor && editor.getHTML() !== initialContent) {
+    if (!editor) return;
+    if (editor.getHTML() !== initialContent && initialContent !== lastSavedContentRef.current) {
       editor.commands.setContent(initialContent || "");
     }
-  }, [initialContent]);
+  }, [initialContent, editor]);
 
   useEffect(() => {
     if (editor) {
@@ -70,18 +79,25 @@ export default function PageContent({
   }, [isEditing, editor]);
 
   useEffect(() => {
-    if (!editor || textColor === prevTextColorRef.current) return;
-    prevTextColorRef.current = textColor;
-    const { from, to } = editor.state.selection;
-    if (from !== to) {
-      editor.chain().focus().setColor(textColor).run();
-    }
+    if (!editor) return;
+    editor.chain().focus().setColor(textColor).run();
   }, [textColor, editor]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    };
+  }, []);
 
   return (
     <div className="relative h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
-        <EditorContent editor={editor} className="h-full" />
+        <EditorContent
+          editor={editor}
+          className="h-full"
+          style={{ color: textColor }}
+        />
       </div>
     </div>
   );
