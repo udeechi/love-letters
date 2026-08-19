@@ -51,8 +51,9 @@ export default function PageContent({
     const maxByWidth = Math.max(12, Math.min(36, Math.round(availW / 22)));
     const text = proseMirror.textContent || "";
 
+    const pmCs = getComputedStyle(proseMirror);
     const measure = document.createElement("div");
-    measure.style.cssText = "position:absolute;top:-9999px;left:-9999px;width:" + availW + "px;white-space:pre-wrap;word-wrap:break-word;padding:16px 24px;margin:0;box-sizing:border-box;";
+    measure.style.cssText = "position:absolute;top:-9999px;left:-9999px;width:" + availW + "px;white-space:pre-wrap;word-wrap:break-word;padding:16px 24px;margin:0;box-sizing:border-box;font-family:" + pmCs.fontFamily + ";letter-spacing:" + pmCs.letterSpacing + ";word-spacing:" + pmCs.wordSpacing + ";";
     document.body.appendChild(measure);
 
     let lo = 8;
