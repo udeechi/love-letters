@@ -42,9 +42,12 @@ export default function PageContent({
     const editorWrap = editorWrapRef.current;
     if (!editorWrap) return;
     const availW = editorWrap.clientWidth;
-    if (availW <= 0) return;
+    const availH = editorWrap.clientHeight;
+    if (availW <= 0 || availH <= 0) return;
 
-    const finalSize = Math.round(Math.max(12, Math.min(28, Math.round(availW / 22))) * 10) / 10;
+    const byWidth = availW / 22;
+    const byHeight = availH / 28;
+    const finalSize = Math.round(Math.max(12, Math.min(36, Math.min(byWidth, byHeight))) * 10) / 10;
 
     const proseMirror = editorWrap.querySelector(".ProseMirror") as HTMLElement | null;
     if (proseMirror) {
@@ -56,7 +59,7 @@ export default function PageContent({
 
   useEffect(() => {
     fitText();
-  }, [charCount, pageId, fitText]);
+  }, [pageId, fitText]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -65,10 +68,6 @@ export default function PageContent({
     ro.observe(wrapper);
     return () => ro.disconnect();
   }, [fitText]);
-
-  useEffect(() => {
-    requestAnimationFrame(() => fitText());
-  }, [pageId, fitText]);
 
   const editor = useEditor({
     extensions: [
