@@ -221,24 +221,12 @@ html, body {
   height: 100%;
   padding: 16px 24px;
   font-family: var(--font-lora);
-  font-size: 15px;
-  line-height: 1.8;
   overflow: hidden;
 }
 
 @media (max-width: 640px) {
   .tiptap-editor.ProseMirror {
-    font-size: 14px;
     padding: 12px 16px;
-    line-height: 1.7;
-  }
-}
-
-/* On very small screens, shrink font to fit more content */
-@media (max-width: 360px) {
-  .tiptap-editor.ProseMirror {
-    font-size: 13px;
-    line-height: 1.6;
   }
 }
 
