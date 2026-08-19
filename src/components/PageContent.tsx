@@ -50,11 +50,7 @@ export default function PageContent({
     const cs = getComputedStyle(proseMirror);
     const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
 
-    const desired = Math.round((availW / 30) * 10) / 10;
-    const maxSize = Math.max(14, Math.min(24, Math.round(availW / 22)));
-    const start = Math.max(10, Math.min(maxSize, desired));
-
-    function getContentHeight(fontPx: number): number {
+    function contentHeight(fontPx: number): number {
       if (!proseMirror) return Infinity;
       proseMirror.style.fontSize = `${fontPx}px`;
       proseMirror.style.lineHeight = "1.7";
@@ -64,20 +60,15 @@ export default function PageContent({
       return h;
     }
 
-    if (getContentHeight(start) - padV <= availH + 1) {
-      proseMirror.style.fontSize = `${start}px`;
-      proseMirror.style.lineHeight = "1.7";
-      setFontSize(start);
-      return;
-    }
-
+    const maxByWidth = Math.max(12, Math.min(28, Math.round(availW / 22)));
     let lo = 8;
-    let hi = start;
+    let hi = maxByWidth;
     let best = 8;
 
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 16; i++) {
       const mid = (lo + hi) / 2;
-      if (getContentHeight(mid) - padV <= availH + 1) {
+      const h = contentHeight(mid) - padV;
+      if (h <= availH + 1) {
         best = mid;
         lo = mid + 0.05;
       } else {
