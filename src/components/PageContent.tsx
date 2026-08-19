@@ -48,18 +48,12 @@ export default function PageContent({
     const proseMirror = editorWrap.querySelector(".ProseMirror") as HTMLElement | null;
     if (!proseMirror) return;
 
-    const cs = getComputedStyle(proseMirror);
-    const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
     const maxByWidth = Math.max(12, Math.min(36, Math.round(availW / 22)));
+    const text = proseMirror.textContent || "";
 
-    const contentHeight = (fontPx: number): number => {
-      proseMirror!.style.fontSize = `${fontPx}px`;
-      proseMirror!.style.lineHeight = "1.7";
-      proseMirror!.style.overflow = "visible";
-      const h = proseMirror!.scrollHeight;
-      proseMirror!.style.overflow = "hidden";
-      return h;
-    };
+    const measure = document.createElement("div");
+    measure.style.cssText = "position:absolute;top:-9999px;left:-9999px;width:" + availW + "px;white-space:pre-wrap;word-wrap:break-word;padding:0;margin:0;";
+    document.body.appendChild(measure);
 
     let lo = 8;
     let hi = maxByWidth;
@@ -67,14 +61,18 @@ export default function PageContent({
 
     for (let i = 0; i < 16; i++) {
       const mid = (lo + hi) / 2;
-      const h = contentHeight(mid) - padV;
-      if (h <= availH + 1) {
+      measure.style.fontSize = `${mid}px`;
+      measure.style.lineHeight = "1.7";
+      measure.textContent = text;
+      if (measure.scrollHeight <= availH + 1) {
         best = mid;
         lo = mid + 0.05;
       } else {
         hi = mid - 0.05;
       }
     }
+
+    document.body.removeChild(measure);
 
     const finalSize = Math.round(best * 10) / 10;
     proseMirror.style.fontSize = `${finalSize}px`;
