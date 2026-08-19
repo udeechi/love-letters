@@ -50,7 +50,7 @@ export default function BookPage({
         </div>
 
         {/* Spacer — breathing room below text */}
-        <div className="shrink-0 h-3" />
+        <div className="shrink-0 h-5" />
 
         {/* Read-only images at bottom */}
         {hasImages && (
