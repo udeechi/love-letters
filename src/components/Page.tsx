@@ -39,7 +39,7 @@ export default function BookPage({
         </div>
 
         {/* Text fills the available space */}
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <PageContent
             initialContent={page.content}
             isEditing={isEditing}
