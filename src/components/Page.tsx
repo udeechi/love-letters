@@ -32,9 +32,9 @@ export default function BookPage({
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
     >
-      <div className="h-full flex flex-col pt-4 pb-3 px-4 sm:px-6">
+      <div className="h-full flex flex-col py-3 px-4 sm:px-6">
         {/* Page number — inline at top */}
-        <div className="text-center text-[#8a7a6a] text-xs font-[family-name:var(--font-playfair)] tracking-wider opacity-50 pointer-events-none select-none shrink-0 leading-none mb-1">
+        <div className="text-center text-[#8a7a6a] text-xs font-[family-name:var(--font-playfair)] tracking-wider opacity-50 pointer-events-none select-none shrink-0 leading-none">
           — {page.page_number} —
         </div>
 
