@@ -44,8 +44,7 @@ export default function PageContent({
     const availW = editorWrap.clientWidth;
     if (availW <= 0) return;
 
-    const raw = availW / 40;
-    const finalSize = Math.round(Math.max(12, Math.min(28, raw)) * 10) / 10;
+    const finalSize = Math.round(Math.max(12, Math.min(28, Math.round(availW / 22))) * 10) / 10;
 
     const proseMirror = editorWrap.querySelector(".ProseMirror") as HTMLElement | null;
     if (proseMirror) {
