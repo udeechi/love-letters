@@ -49,6 +49,9 @@ export default function BookPage({
           />
         </div>
 
+        {/* Spacer — breathing room below text */}
+        <div className="shrink-0 h-3" />
+
         {/* Read-only images at bottom */}
         {hasImages && (
           <div className="shrink-0 mt-2 space-y-2 overflow-hidden max-h-[25%]">
