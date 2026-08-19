@@ -52,6 +52,14 @@ export default function PageContent({
     const cs = getComputedStyle(proseMirror);
     const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
 
+    function getContentHeight(): number {
+      if (!proseMirror) return 0;
+      proseMirror.style.overflow = "visible";
+      const h = proseMirror.scrollHeight;
+      proseMirror.style.overflow = "hidden";
+      return h;
+    }
+
     let lo = MIN_FONT;
     let hi = MAX_FONT;
     let best = MIN_FONT;
@@ -60,7 +68,7 @@ export default function PageContent({
       const mid = (lo + hi) / 2;
       proseMirror.style.fontSize = `${mid}px`;
       proseMirror.style.lineHeight = "1.7";
-      const contentH = proseMirror.scrollHeight - padV;
+      const contentH = getContentHeight() - padV;
       if (contentH <= availH + 1) {
         best = mid;
         lo = mid + 0.05;
