@@ -49,26 +49,30 @@ export default function PageContent({
     const availH = editorWrap.clientHeight;
     if (availH <= 0) return;
 
-    let size = MAX_FONT;
-    proseMirror.style.fontSize = `${size}px`;
+    const cs = getComputedStyle(proseMirror);
+    const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+
+    let lo = MIN_FONT;
+    let hi = MAX_FONT;
+    let best = MIN_FONT;
+
+    for (let i = 0; i < 14; i++) {
+      const mid = (lo + hi) / 2;
+      proseMirror.style.fontSize = `${mid}px`;
+      proseMirror.style.lineHeight = "1.7";
+      const contentH = proseMirror.scrollHeight - padV;
+      if (contentH <= availH + 1) {
+        best = mid;
+        lo = mid + 0.05;
+      } else {
+        hi = mid - 0.05;
+      }
+    }
+
+    const finalSize = Math.round(best * 10) / 10;
+    proseMirror.style.fontSize = `${finalSize}px`;
     proseMirror.style.lineHeight = "1.7";
-
-    if (proseMirror.scrollHeight <= availH + 2) {
-      setFontSize(size);
-      return;
-    }
-
-    const ratio = availH / proseMirror.scrollHeight;
-    size = Math.max(MIN_FONT, Math.round(size * ratio * 100) / 100);
-    proseMirror.style.fontSize = `${size}px`;
-
-    if (proseMirror.scrollHeight > availH + 2) {
-      const ratio2 = availH / proseMirror.scrollHeight;
-      size = Math.max(MIN_FONT, Math.round(size * ratio2 * 100) / 100);
-      proseMirror.style.fontSize = `${size}px`;
-    }
-
-    setFontSize(size);
+    setFontSize(finalSize);
   }, []);
 
   useEffect(() => {
