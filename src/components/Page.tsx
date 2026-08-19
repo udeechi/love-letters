@@ -11,7 +11,6 @@ interface PageProps {
   onSaveContent: (content: string) => void;
   onSaveImages: (images: PageImage[]) => void;
   textColor: string;
-  onOverflow?: (overflowHtml: string) => void;
 }
 
 export default function BookPage({
@@ -20,7 +19,6 @@ export default function BookPage({
   onSaveContent,
   onSaveImages,
   textColor,
-  onOverflow,
 }: PageProps) {
   return (
     <motion.div
@@ -48,7 +46,6 @@ export default function BookPage({
             onSave={onSaveContent}
             textColor={textColor}
             pageId={page.id}
-            onOverflow={onOverflow}
           />
         </div>
 

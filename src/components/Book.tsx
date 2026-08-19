@@ -45,19 +45,10 @@ export default function Book() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [choosingTarget, setChoosingTarget] = useState(false);
   const [imageTarget, setImageTarget] = useState<NotebookPage | null>(null);
-  const pagesRef = useRef(pages);
-  pagesRef.current = pages;
-  const overflowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!isLocked && isInitialized) fetchPages();
   }, [isLocked, isInitialized, fetchPages]);
-
-  useEffect(() => {
-    return () => {
-      if (overflowTimeoutRef.current) clearTimeout(overflowTimeoutRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     if (!isLocked && isInitialized && phase === "locked") setPhase("cover");
@@ -118,9 +109,6 @@ export default function Book() {
   const handleSaveImages = (imgs: PageImage[]) => { if (leftPage) savePage(leftPage.id, leftPage.content, imgs); };
   const handleSaveRightImages = (imgs: PageImage[]) => { if (rightPage) savePage(rightPage.id, rightPage.content, imgs); };
   const handleSaveMobileImages = (imgs: PageImage[]) => { if (mobilePage) savePage(mobilePage.id, mobilePage.content, imgs); };
-  const handleLeftOverflow = (html: string) => { if (leftPage) handleOverflow(leftPage.id, html); };
-  const handleRightOverflow = (html: string) => { if (rightPage) handleOverflow(rightPage.id, html); };
-  const handleMobileOverflow = (html: string) => { if (mobilePage) handleOverflow(mobilePage.id, html); };
   const handleDeletePage = async () => {
     const target = isMobile ? mobilePage : (rightPage || leftPage);
     if (target && pages.length > 1) {
@@ -130,35 +118,6 @@ export default function Book() {
       }
     }
   };
-
-  const handleOverflow = useCallback((currentPageId: string, overflowHtml: string) => {
-    if (overflowTimeoutRef.current) clearTimeout(overflowTimeoutRef.current);
-    overflowTimeoutRef.current = setTimeout(async () => {
-      const current = pagesRef.current.find((p) => p.id === currentPageId);
-      if (!current) return;
-
-      // Find next page
-      const idx = pagesRef.current.findIndex((p) => p.id === currentPageId);
-      let next = pagesRef.current[idx + 1] || null;
-
-      // Auto-create next page if it doesn't exist
-      if (!next) {
-        await createPage();
-        const updated = pagesRef.current;
-        next = updated[updated.length - 1] || null;
-      }
-
-      if (!next) return;
-
-      // Prepend overflow to next page
-      const existingContent = next.content || "";
-      const nextContent = existingContent.trim()
-        ? overflowHtml + existingContent
-        : overflowHtml;
-
-      savePage(next.id, nextContent);
-    }, 800);
-  }, [createPage, savePage]);
 
   const handlePickPage = (page: NotebookPage) => {
     setChoosingTarget(false);
@@ -323,7 +282,6 @@ export default function Book() {
                           onSaveContent={handleSaveMobileContent}
                           onSaveImages={handleSaveMobileImages}
                           textColor={textColor}
-                          onOverflow={handleMobileOverflow}
                         />
                       </AnimatePresence>
                     ) : (
@@ -342,7 +300,7 @@ export default function Book() {
                         <LoadingIndicator />
                       ) : leftPage ? (
                         <AnimatePresence mode="wait">
-                          <BookPage key={leftPage.id} page={leftPage} isEditing={isEditing} onSaveContent={handleSaveContent} onSaveImages={handleSaveImages} textColor={textColor} onOverflow={handleLeftOverflow} />
+                          <BookPage key={leftPage.id} page={leftPage} isEditing={isEditing} onSaveContent={handleSaveContent} onSaveImages={handleSaveImages} textColor={textColor} />
                         </AnimatePresence>
                       ) : (
                         <EmptyPageHint onCreate={createPage} />
@@ -386,7 +344,7 @@ export default function Book() {
                         <LoadingIndicator />
                       ) : rightPage ? (
                         <AnimatePresence mode="wait">
-                          <BookPage key={rightPage.id} page={rightPage} isEditing={isEditing} onSaveContent={handleSaveRightContent} onSaveImages={handleSaveRightImages} textColor={textColor} onOverflow={handleRightOverflow} />
+                          <BookPage key={rightPage.id} page={rightPage} isEditing={isEditing} onSaveContent={handleSaveRightContent} onSaveImages={handleSaveRightImages} textColor={textColor} />
                         </AnimatePresence>
                       ) : (
                         <EmptyPageHint />

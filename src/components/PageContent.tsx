@@ -8,13 +8,20 @@ import Underline from "@tiptap/extension-underline";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { useEffect, useRef, useState, useCallback } from "react";
 
+const MAX_CHARS = 600;
+
+function countChars(html: string): number {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return div.textContent?.length ?? 0;
+}
+
 interface PageContentProps {
   initialContent: string;
   isEditing: boolean;
   onSave: (content: string) => void;
   textColor: string;
   pageId: string;
-  onOverflow?: (overflowHtml: string) => void;
 }
 
 export default function PageContent({
@@ -23,106 +30,34 @@ export default function PageContent({
   onSave,
   textColor,
   pageId,
-  onOverflow,
 }: PageContentProps) {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const overflowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pageIdRef = useRef(pageId);
-  const prevHtmlRef = useRef("");
   const wrapperRef = useRef<HTMLDivElement>(null);
   const editorWrapRef = useRef<HTMLDivElement>(null);
+  const [charCount, setCharCount] = useState(() => countChars(initialContent || ""));
   const [fontSize, setFontSize] = useState(14);
 
   const fitText = useCallback(() => {
     const editorWrap = editorWrapRef.current;
-    const proseMirror = editorWrap?.querySelector(".ProseMirror") as HTMLElement | null;
-    if (!editorWrap || !proseMirror) return;
-
-    const availH = editorWrap.clientHeight;
+    if (!editorWrap) return;
     const availW = editorWrap.clientWidth;
-    if (availH <= 0 || availW <= 0) return;
+    if (availW <= 0) return;
 
-    const cs = getComputedStyle(proseMirror);
-    const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const raw = availW / 40;
+    const finalSize = Math.round(Math.max(12, Math.min(28, raw)) * 10) / 10;
 
-    function contentHeight(fontPx: number): number {
-      if (!proseMirror) return Infinity;
-      proseMirror.style.fontSize = `${fontPx}px`;
+    const proseMirror = editorWrap.querySelector(".ProseMirror") as HTMLElement | null;
+    if (proseMirror) {
+      proseMirror.style.fontSize = `${finalSize}px`;
       proseMirror.style.lineHeight = "1.7";
-      proseMirror.style.overflow = "visible";
-      const h = proseMirror.scrollHeight;
-      proseMirror.style.overflow = "hidden";
-      return h;
     }
-
-    const maxByWidth = Math.max(12, Math.min(28, Math.round(availW / 22)));
-    let lo = 8;
-    let hi = maxByWidth;
-    let best = 8;
-
-    for (let i = 0; i < 16; i++) {
-      const mid = (lo + hi) / 2;
-      const h = contentHeight(mid) - padV;
-      if (h <= availH + 1) {
-        best = mid;
-        lo = mid + 0.05;
-      } else {
-        hi = mid - 0.05;
-      }
-    }
-
-    const finalSize = Math.round(best * 10) / 10;
-    proseMirror.style.fontSize = `${finalSize}px`;
-    proseMirror.style.lineHeight = "1.7";
     setFontSize(finalSize);
-
-    // Overflow detection — after font is fitted, check if content still exceeds container
-    if (onOverflow) {
-      if (overflowTimeoutRef.current) clearTimeout(overflowTimeoutRef.current);
-      overflowTimeoutRef.current = setTimeout(() => {
-        const height = proseMirror.scrollHeight - padV;
-        const container = editorWrapRef.current;
-        if (!container || height <= container.clientHeight + 1) return;
-
-        const html = proseMirror.innerHTML;
-        if (html === prevHtmlRef.current) return;
-        prevHtmlRef.current = html;
-
-        const paragraphs = html.split(/(<\/p>)/i);
-        let lo2 = 0;
-        let hi2 = paragraphs.length;
-
-        while (lo2 < hi2) {
-          const mid = Math.floor((lo2 + hi2) / 2);
-          const candidate = paragraphs.slice(0, mid + 1).join("");
-          const div = document.createElement("div");
-          div.className = "tiptap-editor";
-          div.style.fontSize = `${finalSize}px`;
-          div.style.lineHeight = "1.7";
-          div.style.width = `${availW}px`;
-          div.innerHTML = candidate;
-          document.body.appendChild(div);
-          const h = div.scrollHeight;
-          document.body.removeChild(div);
-          if (h <= availH + 1) lo2 = mid + 1;
-          else hi2 = mid;
-        }
-
-        if (lo2 < paragraphs.length) {
-          const fitting = paragraphs.slice(0, lo2).join("");
-          const overflowHtml = paragraphs.slice(lo2).join("");
-          if (fitting.trim() || overflowHtml.trim()) {
-            prevHtmlRef.current = "";
-            requestAnimationFrame(() => onOverflow(overflowHtml));
-          }
-        }
-      }, 600);
-    }
-  }, [onOverflow]);
+  }, []);
 
   useEffect(() => {
     fitText();
-  }, [pageId, fitText]);
+  }, [charCount, pageId, fitText]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -158,9 +93,27 @@ export default function PageContent({
       attributes: {
         class: "tiptap-editor",
       },
+      handleTextInput: (_view, _pos, _origin, text) => {
+        const current = countChars(editor?.getHTML() || "");
+        if (current + text.length > MAX_CHARS) {
+          return true;
+        }
+        return false;
+      },
     },
     onUpdate: ({ editor: ed }) => {
       const html = ed.getHTML();
+      const count = countChars(html);
+      setCharCount(count);
+
+      if (count > MAX_CHARS) {
+        const plainText = ed.getText();
+        const truncated = plainText.slice(0, MAX_CHARS);
+        ed.commands.setContent(truncated);
+        setCharCount(MAX_CHARS);
+        return;
+      }
+
       requestAnimationFrame(() => fitText());
 
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -176,12 +129,9 @@ export default function PageContent({
       pageIdRef.current = pageId;
       const content = initialContent || "";
       editor.commands.setContent(content);
-      prevHtmlRef.current = "";
-      if (overflowTimeoutRef.current) clearTimeout(overflowTimeoutRef.current);
-      // Check if loaded content overflows (for pre-existing long content)
-      requestAnimationFrame(() => fitText());
+      setCharCount(countChars(content));
     }
-  }, [pageId, initialContent, editor, fitText]);
+  }, [pageId, initialContent, editor]);
 
   useEffect(() => {
     if (editor) {
@@ -200,9 +150,11 @@ export default function PageContent({
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      if (overflowTimeoutRef.current) clearTimeout(overflowTimeoutRef.current);
     };
   }, []);
+
+  const ratio = charCount / MAX_CHARS;
+  const counterColor = ratio >= 1 ? "text-[#a82d6a]" : ratio >= 0.85 ? "text-[#c49a2a]" : "text-[#8a7a6a]";
 
   return (
     <div ref={wrapperRef} className="relative h-full flex flex-col">
@@ -212,6 +164,12 @@ export default function PageContent({
           style={{ color: textColor, fontSize: `${fontSize}px`, lineHeight: 1.7, flex: 1, display: 'flex', flexDirection: 'column' }}
         />
       </div>
+
+      {isEditing && (
+        <div className={`text-right font-mono ${counterColor} select-none shrink-0`} style={{ fontSize: Math.max(9, fontSize - 4) }}>
+          {charCount}/{MAX_CHARS}
+        </div>
+      )}
     </div>
   );
 }
