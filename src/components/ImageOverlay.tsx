@@ -128,7 +128,7 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
     <div
       ref={containerRef}
       className="absolute inset-0"
-      style={{ zIndex: isEditing ? 20 : 5, pointerEvents: isEditing ? "auto" : "none" }}
+      style={{ zIndex: isEditing ? 20 : 5, pointerEvents: isEditing && selectedIndex !== null ? "auto" : "none" }}
       onClick={handleDeselect}
     >
       {images.map((img, index) => {
@@ -160,6 +160,7 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
               border: isSelected ? "2px solid #d4af37" : "none",
               borderRadius: 2,
               cursor: isEditing ? "move" : "default",
+              pointerEvents: isEditing ? "auto" : "none",
             }}
             onClick={(e) => {
               e.stopPropagation();
@@ -178,6 +179,7 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
           className="absolute w-6 h-6 bg-[#2d0a1b]/90 rounded-full text-[#d4af37] text-xs flex items-center justify-center hover:bg-[#4d1a2b] transition-colors"
           style={{
             zIndex: 30,
+            pointerEvents: "auto",
             left: `${(() => {
               const img = images[selectedIndex];
               if (!containerRef.current) return "50%";
