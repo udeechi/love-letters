@@ -8,7 +8,7 @@ import Underline from "@tiptap/extension-underline";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { useEffect, useRef, useState, useCallback } from "react";
 
-const MAX_CHARS = 500;
+const MAX_CHARS = 600;
 
 function countChars(html: string): number {
   const div = document.createElement("div");
