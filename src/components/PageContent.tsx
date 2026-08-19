@@ -119,8 +119,8 @@ export default function PageContent({
   const counterColor = ratio >= 1 ? "text-[#a82d6a]" : ratio >= 0.85 ? "text-[#c49a2a]" : "text-[#8a7a6a]";
 
   return (
-    <div className="relative flex flex-col">
-      <div className="page-editor-scroll">
+    <div className="relative h-full flex flex-col">
+      <div className="flex-1 min-h-0 overflow-hidden">
         <EditorContent
           editor={editor}
           style={{ color: textColor }}
@@ -128,7 +128,7 @@ export default function PageContent({
       </div>
 
       {isEditing && (
-        <div className={`text-right text-[10px] font-mono ${counterColor} select-none pt-1 pr-1`}>
+        <div className={`text-right text-[10px] font-mono ${counterColor} select-none shrink-0`}>
           {charCount}/{MAX_CHARS}
         </div>
       )}

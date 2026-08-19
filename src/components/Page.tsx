@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion";
 import PageContent from "./PageContent";
-import ImageUpload from "./ImageUpload";
 import type { NotebookPage, PageImage } from "@/types";
 
 interface PageProps {
@@ -17,9 +16,10 @@ export default function BookPage({
   page,
   isEditing,
   onSaveContent,
-  onSaveImages,
   textColor,
 }: PageProps) {
+  const hasImages = page.images && page.images.length > 0;
+
   return (
     <motion.div
       className="absolute inset-0 overflow-hidden"
@@ -37,9 +37,10 @@ export default function BookPage({
         — {page.page_number} —
       </div>
 
-      {/* Single scrollable container for all content */}
-      <div className="h-full overflow-y-auto pt-10 pb-4 page-scroll-area">
-        <div className="px-4 sm:px-6">
+      {/* Flat content — no scroll, everything visible at once */}
+      <div className="h-full flex flex-col pt-10 pb-3 px-4 sm:px-6">
+        {/* Text fills the available space */}
+        <div className="flex-1 min-h-0">
           <PageContent
             initialContent={page.content}
             isEditing={isEditing}
@@ -49,14 +50,20 @@ export default function BookPage({
           />
         </div>
 
-        <div className="px-4 sm:px-6 pt-2">
-          <ImageUpload
-            images={page.images || []}
-            onImagesChange={(images) => onSaveImages(images)}
-            isEditing={isEditing}
-            onSave={onSaveImages}
-          />
-        </div>
+        {/* Read-only images at bottom */}
+        {hasImages && (
+          <div className="shrink-0 mt-2 space-y-2 overflow-hidden max-h-[25%]">
+            {page.images!.map((image, index) => (
+              <div key={image.public_id} className="relative">
+                <img
+                  src={image.url}
+                  alt={image.caption || `Image ${index + 1}`}
+                  className="w-full h-auto max-h-[20vh] object-contain rounded-sm"
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );
