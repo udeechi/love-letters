@@ -38,7 +38,7 @@ export default function BookPage({
       </div>
 
       {/* Flat content — no scroll, everything visible at once */}
-      <div className="h-full flex flex-col pt-10 pb-3 px-4 sm:px-6">
+      <div className="h-full flex flex-col py-3 px-4 sm:px-6">
         {/* Text fills the available space */}
         <div className="flex-1 min-h-0">
           <PageContent
