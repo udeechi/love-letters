@@ -45,3 +45,6 @@ next-env.d.ts
 
 # scripts
 setup-db.js
+
+.vercel
+.env*

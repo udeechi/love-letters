@@ -24,6 +24,7 @@ export interface PageImage {
   x?: number;
   y?: number;
   imgW?: number;
+  rotation?: number;
 }
 
 export interface AuthPayload {

@@ -40,10 +40,12 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
       target,
       draggable: true,
       resizable: true,
+      rotatable: true,
       snappable: false,
       origin: false,
       throttleDrag: 0,
       throttleResize: 0,
+      throttleRotate: 0,
       renderDirections: ["se"],
     });
 
@@ -106,6 +108,26 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
       }
     });
 
+    moveableRef.current.on("rotateStart", () => {});
+
+    moveableRef.current.on("rotate", ({ target: tgt, rotate }) => {
+      if (!tgt) return;
+      (tgt as HTMLImageElement).style.transform = `rotate(${rotate}deg)`;
+    });
+
+    moveableRef.current.on("rotateEnd", ({ target: tgt }) => {
+      if (!tgt) return;
+      const imgEl = tgt as HTMLImageElement;
+      const match = imgEl.style.transform.match(/rotate\(([-\d.]+)deg\)/);
+      const rotation = match ? parseFloat(match[1]) : 0;
+      const idx = selectedRef.current;
+      if (idx !== null) {
+        const updated = [...imagesRef.current];
+        updated[idx] = { ...updated[idx], rotation };
+        onSaveRef.current(updated);
+      }
+    });
+
     return () => {
       moveableRef.current?.destroy();
       moveableRef.current = null;
@@ -142,6 +164,7 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
         const left = cx - imgWPx / 2;
         const top = cy - imgHPx / 2;
         const isSelected = isEditing && selectedIndex === index;
+        const rotation = img.rotation ?? 0;
 
         return (
           <img
@@ -157,6 +180,7 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
               width: `${imgWPx}px`,
               height: `${imgHPx}px`,
               objectFit: "contain",
+              transform: `rotate(${rotation}deg)`,
               border: isSelected ? "2px solid #d4af37" : "none",
               borderRadius: 2,
               cursor: isEditing ? "move" : "default",
