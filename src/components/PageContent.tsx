@@ -45,15 +45,40 @@ export default function PageContent({
     const availH = editorWrap.clientHeight;
     if (availW <= 0 || availH <= 0) return;
 
-    const byWidth = availW / 22;
-    const byHeight = availH / 28;
-    const finalSize = Math.round(Math.max(12, Math.min(36, Math.min(byWidth, byHeight))) * 10) / 10;
-
     const proseMirror = editorWrap.querySelector(".ProseMirror") as HTMLElement | null;
-    if (proseMirror) {
-      proseMirror.style.fontSize = `${finalSize}px`;
-      proseMirror.style.lineHeight = "1.7";
+    if (!proseMirror) return;
+
+    const cs = getComputedStyle(proseMirror);
+    const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const maxByWidth = Math.max(12, Math.min(36, Math.round(availW / 22)));
+
+    const contentHeight = (fontPx: number): number => {
+      proseMirror!.style.fontSize = `${fontPx}px`;
+      proseMirror!.style.lineHeight = "1.7";
+      proseMirror!.style.overflow = "visible";
+      const h = proseMirror!.scrollHeight;
+      proseMirror!.style.overflow = "hidden";
+      return h;
+    };
+
+    let lo = 8;
+    let hi = maxByWidth;
+    let best = 8;
+
+    for (let i = 0; i < 16; i++) {
+      const mid = (lo + hi) / 2;
+      const h = contentHeight(mid) - padV;
+      if (h <= availH + 1) {
+        best = mid;
+        lo = mid + 0.05;
+      } else {
+        hi = mid - 0.05;
+      }
     }
+
+    const finalSize = Math.round(best * 10) / 10;
+    proseMirror.style.fontSize = `${finalSize}px`;
+    proseMirror.style.lineHeight = "1.7";
     setFontSize(finalSize);
   }, []);
 
