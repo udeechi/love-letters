@@ -28,6 +28,11 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: #0d0a0f;
+  background-image: url('/background_love.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 /* Book Container */
@@ -38,7 +43,7 @@ html, body {
   width: 100vw;
   height: 100dvh;
   perspective: 2200px;
-  background: radial-gradient(ellipse at center, #1a1520 0%, #0d0a0f 70%);
+  background: radial-gradient(ellipse at center, rgba(26,21,32,0.6) 0%, rgba(13,10,15,0.7) 70%);
 }
 
 .book-scene {
