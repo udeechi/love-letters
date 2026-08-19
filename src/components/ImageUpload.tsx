@@ -75,7 +75,7 @@ export default function ImageUpload({
   };
 
   return (
-    <div>
+    <div className="page-images-area">
       <input
         ref={fileInputRef}
         type="file"
@@ -96,7 +96,7 @@ export default function ImageUpload({
             <img
               src={image.url}
               alt={image.caption || `Image ${index + 1}`}
-              className="w-full h-auto rounded-sm"
+              className="w-full h-auto max-h-[30vh] object-contain rounded-sm"
             />
             {isEditing && (
               <button

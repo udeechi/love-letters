@@ -22,18 +22,24 @@ export default function BookPage({
 }: PageProps) {
   return (
     <motion.div
-      className="absolute inset-0 page-surface"
+      className="absolute inset-0 overflow-hidden"
+      style={{
+        background: "linear-gradient(135deg, #f5edd6 0%, #f2e8d0 30%, #ede0bb 100%)",
+        borderRadius: "inherit",
+      }}
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
     >
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 text-[#8a7a6a] text-xs font-[family-name:var(--font-playfair)] tracking-wider opacity-50">
+      {/* Page number - fixed at top */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[#8a7a6a] text-xs font-[family-name:var(--font-playfair)] tracking-wider opacity-50 pointer-events-none select-none">
         — {page.page_number} —
       </div>
 
-      <div className="h-full flex flex-col pt-10 pb-4">
-        <div className="flex-1 overflow-hidden">
+      {/* Single scrollable container for all content */}
+      <div className="h-full overflow-y-auto pt-10 pb-4 page-scroll-area">
+        <div className="px-4 sm:px-6">
           <PageContent
             initialContent={page.content}
             isEditing={isEditing}
@@ -43,7 +49,7 @@ export default function BookPage({
           />
         </div>
 
-        <div className="px-4 pt-2">
+        <div className="px-4 sm:px-6 pt-2">
           <ImageUpload
             images={page.images || []}
             onImagesChange={(images) => onSaveImages(images)}

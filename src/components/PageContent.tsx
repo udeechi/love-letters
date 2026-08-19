@@ -6,7 +6,15 @@ import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const MAX_CHARS = 800;
+
+function countChars(html: string): number {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return div.textContent?.length ?? 0;
+}
 
 interface PageContentProps {
   initialContent: string;
@@ -25,6 +33,7 @@ export default function PageContent({
 }: PageContentProps) {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pageIdRef = useRef(pageId);
+  const [charCount, setCharCount] = useState(() => countChars(initialContent || ""));
 
   const editor = useEditor({
     extensions: [
@@ -48,11 +57,30 @@ export default function PageContent({
       attributes: {
         class: "tiptap-editor",
       },
+      handleTextInput: (_view, _pos, _origin, text) => {
+        const current = countChars(editor?.getHTML() || "");
+        if (current + text.length > MAX_CHARS) {
+          return true;
+        }
+        return false;
+      },
     },
     onUpdate: ({ editor: ed }) => {
+      const html = ed.getHTML();
+      const count = countChars(html);
+      setCharCount(count);
+
+      if (count > MAX_CHARS) {
+        const plainText = ed.getText();
+        const truncated = plainText.slice(0, MAX_CHARS);
+        ed.commands.setContent(truncated);
+        setCharCount(MAX_CHARS);
+        return;
+      }
+
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
-        onSave(ed.getHTML());
+        onSave(html);
       }, 1000);
     },
   });
@@ -61,7 +89,9 @@ export default function PageContent({
     if (!editor) return;
     if (pageId !== pageIdRef.current) {
       pageIdRef.current = pageId;
-      editor.commands.setContent(initialContent || "");
+      const content = initialContent || "";
+      editor.commands.setContent(content);
+      setCharCount(countChars(content));
     }
   }, [pageId, initialContent, editor]);
 
@@ -85,15 +115,23 @@ export default function PageContent({
     };
   }, []);
 
+  const ratio = charCount / MAX_CHARS;
+  const counterColor = ratio >= 1 ? "text-[#a82d6a]" : ratio >= 0.85 ? "text-[#c49a2a]" : "text-[#8a7a6a]";
+
   return (
-    <div className="relative h-full flex flex-col">
-      <div className="flex-1 overflow-y-auto">
+    <div className="relative flex flex-col">
+      <div className="page-editor-scroll">
         <EditorContent
           editor={editor}
-          className="h-full"
           style={{ color: textColor }}
         />
       </div>
+
+      {isEditing && (
+        <div className={`text-right text-[10px] font-mono ${counterColor} select-none pt-1 pr-1`}>
+          {charCount}/{MAX_CHARS}
+        </div>
+      )}
     </div>
   );
 }
