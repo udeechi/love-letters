@@ -52,7 +52,7 @@ export default function PageContent({
     const text = proseMirror.textContent || "";
 
     const measure = document.createElement("div");
-    measure.style.cssText = "position:absolute;top:-9999px;left:-9999px;width:" + availW + "px;white-space:pre-wrap;word-wrap:break-word;padding:0;margin:0;";
+    measure.style.cssText = "position:absolute;top:-9999px;left:-9999px;width:" + availW + "px;white-space:pre-wrap;word-wrap:break-word;padding:16px 24px;margin:0;box-sizing:border-box;";
     document.body.appendChild(measure);
 
     let lo = 8;
