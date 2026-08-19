@@ -9,18 +9,13 @@ import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { useEffect, useRef, useState, useCallback } from "react";
 
 const MAX_CHARS = 800;
+const MIN_FONT = 8;
+const MAX_FONT = 16;
 
 function countChars(html: string): number {
   const div = document.createElement("div");
   div.innerHTML = html;
   return div.textContent?.length ?? 0;
-}
-
-function calcFontSize(width: number, height: number, chars: number): number {
-  if (chars <= 0 || width <= 0 || height <= 0) return 15;
-  const area = width * height;
-  const raw = Math.sqrt(area / (chars * 0.7));
-  return Math.max(9, Math.min(16, Math.round(raw * 10) / 10));
 }
 
 interface PageContentProps {
@@ -40,29 +35,57 @@ export default function PageContent({
 }: PageContentProps) {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pageIdRef = useRef(pageId);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const editorWrapRef = useRef<HTMLDivElement>(null);
   const [charCount, setCharCount] = useState(() => countChars(initialContent || ""));
-  const [fontSize, setFontSize] = useState(15);
+  const [fontSize, setFontSize] = useState(MAX_FONT);
 
-  const measure = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setFontSize(calcFontSize(rect.width, rect.height, charCount));
-  }, [charCount]);
+  const fitText = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    const editorWrap = editorWrapRef.current;
+    const proseMirror = editorWrap?.querySelector(".ProseMirror") as HTMLElement | null;
+    if (!wrapper || !editorWrap || !proseMirror) return;
+
+    const availH = editorWrap.clientHeight;
+    if (availH <= 0) return;
+
+    let size = MAX_FONT;
+    proseMirror.style.fontSize = `${size}px`;
+    proseMirror.style.lineHeight = "1.7";
+
+    if (proseMirror.scrollHeight <= availH + 2) {
+      setFontSize(size);
+      return;
+    }
+
+    const ratio = availH / proseMirror.scrollHeight;
+    size = Math.max(MIN_FONT, Math.round(size * ratio * 100) / 100);
+    proseMirror.style.fontSize = `${size}px`;
+
+    if (proseMirror.scrollHeight > availH + 2) {
+      const ratio2 = availH / proseMirror.scrollHeight;
+      size = Math.max(MIN_FONT, Math.round(size * ratio2 * 100) / 100);
+      proseMirror.style.fontSize = `${size}px`;
+    }
+
+    setFontSize(size);
+  }, []);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    measure();
-    const ro = new ResizeObserver(() => measure());
-    ro.observe(el);
+    fitText();
+  }, [charCount, pageId, fitText]);
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    const ro = new ResizeObserver(() => fitText());
+    ro.observe(wrapper);
     return () => ro.disconnect();
-  }, [measure]);
+  }, [fitText]);
 
   useEffect(() => {
-    measure();
-  }, [pageId, measure]);
+    requestAnimationFrame(() => fitText());
+  }, [pageId, fitText]);
 
   const editor = useEditor({
     extensions: [
@@ -107,6 +130,8 @@ export default function PageContent({
         return;
       }
 
+      requestAnimationFrame(() => fitText());
+
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
         onSave(html);
@@ -148,8 +173,8 @@ export default function PageContent({
   const counterColor = ratio >= 1 ? "text-[#a82d6a]" : ratio >= 0.85 ? "text-[#c49a2a]" : "text-[#8a7a6a]";
 
   return (
-    <div ref={containerRef} className="relative h-full flex flex-col">
-      <div className="flex-1 min-h-0 overflow-hidden">
+    <div ref={wrapperRef} className="relative h-full flex flex-col">
+      <div ref={editorWrapRef} className="flex-1 min-h-0 overflow-hidden">
         <EditorContent
           editor={editor}
           style={{ color: textColor, fontSize: `${fontSize}px`, lineHeight: 1.7 }}
