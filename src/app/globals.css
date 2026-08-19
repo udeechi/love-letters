@@ -218,7 +218,8 @@ html, body {
 /* TipTap Editor Styles */
 .tiptap-editor.ProseMirror {
   outline: none;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   padding: 16px 24px;
   font-family: var(--font-lora);
   overflow: hidden;

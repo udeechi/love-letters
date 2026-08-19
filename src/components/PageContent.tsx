@@ -178,10 +178,10 @@ export default function PageContent({
 
   return (
     <div ref={wrapperRef} className="relative h-full flex flex-col">
-      <div ref={editorWrapRef} className="flex-1 min-h-0 overflow-hidden">
+      <div ref={editorWrapRef} className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <EditorContent
           editor={editor}
-          style={{ color: textColor, fontSize: `${fontSize}px`, lineHeight: 1.7 }}
+          style={{ color: textColor, fontSize: `${fontSize}px`, lineHeight: 1.7, flex: 1, display: 'flex', flexDirection: 'column' }}
         />
       </div>
 
