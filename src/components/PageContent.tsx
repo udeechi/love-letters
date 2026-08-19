@@ -9,8 +9,6 @@ import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { useEffect, useRef, useState, useCallback } from "react";
 
 const MAX_CHARS = 800;
-const MIN_FONT = 8;
-const MAX_FONT = 16;
 
 function countChars(html: string): number {
   const div = document.createElement("div");
@@ -38,38 +36,48 @@ export default function PageContent({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const editorWrapRef = useRef<HTMLDivElement>(null);
   const [charCount, setCharCount] = useState(() => countChars(initialContent || ""));
-  const [fontSize, setFontSize] = useState(MAX_FONT);
+  const [fontSize, setFontSize] = useState(14);
 
   const fitText = useCallback(() => {
-    const wrapper = wrapperRef.current;
     const editorWrap = editorWrapRef.current;
     const proseMirror = editorWrap?.querySelector(".ProseMirror") as HTMLElement | null;
-    if (!wrapper || !editorWrap || !proseMirror) return;
+    if (!editorWrap || !proseMirror) return;
 
     const availH = editorWrap.clientHeight;
-    if (availH <= 0) return;
+    const availW = editorWrap.clientWidth;
+    if (availH <= 0 || availW <= 0) return;
 
     const cs = getComputedStyle(proseMirror);
     const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
 
-    function getContentHeight(): number {
-      if (!proseMirror) return 0;
+    const desired = Math.round((availW / 30) * 10) / 10;
+    const maxSize = Math.max(14, Math.min(24, Math.round(availW / 22)));
+    const start = Math.max(10, Math.min(maxSize, desired));
+
+    function getContentHeight(fontPx: number): number {
+      if (!proseMirror) return Infinity;
+      proseMirror.style.fontSize = `${fontPx}px`;
+      proseMirror.style.lineHeight = "1.7";
       proseMirror.style.overflow = "visible";
       const h = proseMirror.scrollHeight;
       proseMirror.style.overflow = "hidden";
       return h;
     }
 
-    let lo = MIN_FONT;
-    let hi = MAX_FONT;
-    let best = MIN_FONT;
+    if (getContentHeight(start) - padV <= availH + 1) {
+      proseMirror.style.fontSize = `${start}px`;
+      proseMirror.style.lineHeight = "1.7";
+      setFontSize(start);
+      return;
+    }
+
+    let lo = 8;
+    let hi = start;
+    let best = 8;
 
     for (let i = 0; i < 14; i++) {
       const mid = (lo + hi) / 2;
-      proseMirror.style.fontSize = `${mid}px`;
-      proseMirror.style.lineHeight = "1.7";
-      const contentH = getContentHeight() - padV;
-      if (contentH <= availH + 1) {
+      if (getContentHeight(mid) - padV <= availH + 1) {
         best = mid;
         lo = mid + 0.05;
       } else {
