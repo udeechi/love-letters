@@ -64,7 +64,7 @@ export default function PageContent({
       const mid = (lo + hi) / 2;
       measure.style.fontSize = `${mid}px`;
       measure.style.lineHeight = "1.7";
-      measure.textContent = text;
+      measure.innerHTML = "<p style='margin:0'>" + text.replace(/</g, "&lt;") + "</p>";
       if (measure.scrollHeight <= availH + 1) {
         best = mid;
         lo = mid + 0.05;
