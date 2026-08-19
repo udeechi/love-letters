@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import BookCover from "./BookCover";
 import LockScreen from "./LockScreen";
@@ -41,6 +41,8 @@ export default function Book() {
   const [textColor, setTextColor] = useState("#000000");
   const [mobilePageIndex, setMobilePageIndex] = useState(0);
   const isMobile = useIsMobile();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   useEffect(() => {
     if (!isLocked && isInitialized) fetchPages();
@@ -115,6 +117,37 @@ export default function Book() {
     }
   };
 
+  const activePage = isMobile ? mobilePage : leftPage;
+  const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activePage) return;
+    setIsUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      if (res.ok) {
+        const result = await res.json();
+        const newImage = {
+          url: result.url,
+          public_id: result.public_id,
+          width: result.width,
+          height: result.height,
+          x: 50,
+          y: 50,
+          imgW: 25,
+        };
+        const updated = [...(activePage.images || []), newImage];
+        savePage(activePage.id, activePage.content, updated);
+      }
+    } catch (err) {
+      console.error("Upload failed:", err);
+    } finally {
+      setIsUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   if (!isInitialized) {
     return (
       <div className="book-viewport">
@@ -184,6 +217,21 @@ export default function Book() {
                     className="w-20 px-1.5 py-0.5 text-[11px] font-mono bg-transparent border border-[#d4af37]/15 rounded-sm text-[#d4af37]/80 focus:border-[#d4af37]/40 focus:outline-none"
                   />
                 )}
+                <div className="w-px h-4 bg-[#d4af37]/20" />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingImage || !activePage}
+                  className="text-[10px] font-[family-name:var(--font-playfair)] text-[#8a7a6a] tracking-wider uppercase hover:text-[#d4af37] transition-colors disabled:opacity-40"
+                >
+                  {isUploadingImage ? "..." : "+ Image"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAddImage}
+                  className="hidden"
+                />
               </motion.div>
             )}
 

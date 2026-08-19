@@ -21,6 +21,9 @@ export interface PageImage {
   width: number;
   height: number;
   caption?: string;
+  x?: number;
+  y?: number;
+  imgW?: number;
 }
 
 export interface AuthPayload {

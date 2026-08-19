@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import PageContent from "./PageContent";
+import ImageOverlay from "./ImageOverlay";
 import type { NotebookPage, PageImage } from "@/types";
 
 interface PageProps {
@@ -16,10 +17,9 @@ export default function BookPage({
   page,
   isEditing,
   onSaveContent,
+  onSaveImages,
   textColor,
 }: PageProps) {
-  const hasImages = page.images && page.images.length > 0;
-
   return (
     <motion.div
       className="absolute inset-0 overflow-hidden"
@@ -51,22 +51,14 @@ export default function BookPage({
 
         {/* Spacer — breathing room below text */}
         <div className="shrink-0 h-5" />
-
-        {/* Read-only images at bottom */}
-        {hasImages && (
-          <div className="shrink-0 mt-2 space-y-2 overflow-hidden max-h-[25%]">
-            {page.images!.map((image, index) => (
-              <div key={image.public_id} className="relative">
-                <img
-                  src={image.url}
-                  alt={image.caption || `Image ${index + 1}`}
-                  className="w-full h-auto max-h-[20vh] object-contain rounded-sm"
-                />
-              </div>
-            ))}
-          </div>
-        )}
       </div>
+
+      {/* Image overlay — sits on top of everything, same size as page */}
+      <ImageOverlay
+        images={page.images || []}
+        isEditing={isEditing}
+        onSave={onSaveImages}
+      />
     </motion.div>
   );
 }

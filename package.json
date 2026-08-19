@@ -25,6 +25,7 @@
     "cloudinary": "^2.10.0",
     "framer-motion": "^13.1.0",
     "jose": "^6.2.9",
+    "moveable": "^0.53.0",
     "next": "16.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
