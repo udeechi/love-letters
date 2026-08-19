@@ -9,7 +9,7 @@ import EditToggle from "./EditToggle";
 import PageControls from "./PageControls";
 import { useBookState } from "@/hooks/useBookState";
 import { useNotebook } from "@/hooks/useNotebook";
-import type { PageImage, NotebookPage } from "@/types";
+import type { PageImage } from "@/types";
 
 type Phase = "locked" | "cover" | "opening" | "open";
 
@@ -43,8 +43,6 @@ export default function Book() {
   const isMobile = useIsMobile();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [choosingTarget, setChoosingTarget] = useState(false);
-  const [imageTarget, setImageTarget] = useState<NotebookPage | null>(null);
 
   useEffect(() => {
     if (!isLocked && isInitialized) fetchPages();
@@ -119,15 +117,10 @@ export default function Book() {
     }
   };
 
-  const handlePickPage = (page: NotebookPage) => {
-    setChoosingTarget(false);
-    setImageTarget(page);
-    requestAnimationFrame(() => fileInputRef.current?.click());
-  };
-
+  const activePage = isMobile ? mobilePage : leftPage;
   const handleAddImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !imageTarget) return;
+    if (!file || !activePage) return;
     setIsUploadingImage(true);
     try {
       const formData = new FormData();
@@ -144,14 +137,13 @@ export default function Book() {
           y: 50,
           imgW: 25,
         };
-        const updated = [...(imageTarget.images || []), newImage];
-        savePage(imageTarget.id, imageTarget.content, updated);
+        const updated = [...(activePage.images || []), newImage];
+        savePage(activePage.id, activePage.content, updated);
       }
     } catch (err) {
       console.error("Upload failed:", err);
     } finally {
       setIsUploadingImage(false);
-      setImageTarget(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -227,14 +219,8 @@ export default function Book() {
                 )}
                 <div className="w-px h-4 bg-[#d4af37]/20" />
                 <button
-                  onClick={() => {
-                    if (isMobile) {
-                      if (mobilePage) handlePickPage(mobilePage);
-                    } else {
-                      setChoosingTarget(true);
-                    }
-                  }}
-                  disabled={isUploadingImage || (!isMobile && !leftPage && !rightPage) || (isMobile && !mobilePage)}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingImage || !activePage}
                   className="text-[10px] font-[family-name:var(--font-playfair)] text-[#8a7a6a] tracking-wider uppercase hover:text-[#d4af37] transition-colors disabled:opacity-40"
                 >
                   {isUploadingImage ? "..." : "+ Image"}
@@ -306,17 +292,6 @@ export default function Book() {
                         <EmptyPageHint onCreate={createPage} />
                       )}
                     </div>
-                    {choosingTarget && leftPage && (
-                      <div
-                        className="absolute inset-0 flex items-center justify-center cursor-pointer"
-                        style={{ zIndex: 25 }}
-                        onClick={() => handlePickPage(leftPage)}
-                      >
-                        <div className="px-6 py-3 bg-[#1a0d12]/70 border border-[#d4af37]/30 rounded-sm backdrop-blur-sm text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm tracking-wider hover:bg-[#2d0a1b]/80 hover:border-[#d4af37]/50 transition-all">
-                          Select
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   <motion.div
@@ -350,17 +325,6 @@ export default function Book() {
                         <EmptyPageHint />
                       )}
                     </div>
-                    {choosingTarget && rightPage && (
-                      <div
-                        className="absolute inset-0 flex items-center justify-center cursor-pointer"
-                        style={{ zIndex: 25 }}
-                        onClick={() => handlePickPage(rightPage)}
-                      >
-                        <div className="px-6 py-3 bg-[#1a0d12]/70 border border-[#d4af37]/30 rounded-sm backdrop-blur-sm text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm tracking-wider hover:bg-[#2d0a1b]/80 hover:border-[#d4af37]/50 transition-all">
-                          Select
-                        </div>
-                      </div>
-                    )}
                   </motion.div>
                 </>
               )}
