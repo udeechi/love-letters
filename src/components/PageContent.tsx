@@ -48,8 +48,11 @@ export default function PageContent({
     const proseMirror = editorWrap.querySelector(".ProseMirror") as HTMLElement | null;
     if (!proseMirror) return;
 
-    const maxByWidth = Math.max(12, Math.min(36, Math.round(availW / 22)));
+    // Scale font size proportionally to the diagonal of the page container
+    const diag = Math.sqrt(availW * availW + availH * availH);
+    const maxFontSize = Math.max(12, diag * 0.04);
 
+    // Temporarily set overflow:visible on all ancestors to measure true content height
     const ancestors: HTMLElement[] = [];
     let el: HTMLElement | null = proseMirror;
     while (el && el !== document.body) {
@@ -63,19 +66,20 @@ export default function PageContent({
     proseMirror.style.overflow = "visible";
     ancestors.push(proseMirror);
 
-    let lo = 8;
-    let hi = maxByWidth;
-    let best = 8;
+    // Continuous binary search to find the exact boundary
+    let lo = 6;
+    let hi = maxFontSize;
+    let best = 6;
 
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 20; i++) {
       const mid = (lo + hi) / 2;
       proseMirror.style.fontSize = `${mid}px`;
       proseMirror.style.lineHeight = "1.7";
-      if (proseMirror.scrollHeight <= availH + 1) {
+      if (proseMirror.scrollHeight <= availH) {
         best = mid;
-        lo = mid + 0.05;
+        lo = mid;
       } else {
-        hi = mid - 0.05;
+        hi = mid;
       }
     }
 
@@ -83,6 +87,7 @@ export default function PageContent({
       a.style.overflow = "";
     }
 
+    // Floor to 1 decimal place to guarantee it stays within bounds
     const finalSize = Math.floor(best * 10) / 10;
     proseMirror.style.fontSize = `${finalSize}px`;
     proseMirror.style.lineHeight = "1.7";

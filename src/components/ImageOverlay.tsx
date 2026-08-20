@@ -18,6 +18,7 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
   const imagesRef = useRef(images);
   const onSaveRef = useRef(onSave);
   const selectedRef = useRef(selectedIndex);
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
   imagesRef.current = images;
   onSaveRef.current = onSave;
@@ -29,6 +30,21 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
     } else {
       imageElRefs.current.delete(index);
     }
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    
+    // Initial size
+    setContainerSize({ w: el.clientWidth, h: el.clientHeight });
+
+    const ro = new ResizeObserver(() => {
+      setContainerSize({ w: el.clientWidth, h: el.clientHeight });
+      moveableRef.current?.updateRect();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   useEffect(() => {
@@ -154,8 +170,8 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
       onClick={handleDeselect}
     >
       {images.map((img, index) => {
-        const containerW = containerRef.current?.clientWidth || 0;
-        const containerH = containerRef.current?.clientHeight || 0;
+        const containerW = containerSize.w;
+        const containerH = containerSize.h;
         const cx = ((img.x ?? 50) / 100) * containerW;
         const cy = ((img.y ?? 50) / 100) * containerH;
         const imgWPx = ((img.imgW ?? 25) / 100) * containerW;
@@ -206,17 +222,15 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
             pointerEvents: "auto",
             left: `${(() => {
               const img = images[selectedIndex];
-              if (!containerRef.current) return "50%";
-              const cw = containerRef.current.clientWidth;
+              const cw = containerSize.w;
               const imgWPx = ((img.imgW ?? 25) / 100) * cw;
               const cx = ((img.x ?? 50) / 100) * cw;
               return `${cx + imgWPx / 2 + 4}px`;
             })()}`,
             top: `${(() => {
               const img = images[selectedIndex];
-              if (!containerRef.current) return "50%";
-              const ch = containerRef.current.clientHeight;
-              const cw = containerRef.current.clientWidth;
+              const cw = containerSize.w;
+              const ch = containerSize.h;
               const imgWPx = ((img.imgW ?? 25) / 100) * cw;
               const aspect = img.height / img.width;
               const imgHPx = imgWPx * aspect;
