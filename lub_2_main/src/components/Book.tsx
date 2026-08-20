@@ -110,17 +110,19 @@ export default function Book() {
   }, [prevSpread]);
 
   const handleChooseLeft = useCallback(() => {
+    if (isEditing) return;
     if (!isLeftFolding && !isFolding && phase === "open" && currentSpread > 0) {
       setIsLeftFolding(true);
     }
-  }, [isLeftFolding, isFolding, phase, currentSpread]);
+  }, [isLeftFolding, isFolding, phase, currentSpread, isEditing]);
 
   const handleChooseRight = useCallback(() => {
+    if (isEditing) return;
     if (!isFolding && !isLeftFolding && phase === "open" && currentSpread < totalSpreads - 1) {
       setIsFolding(true);
       setFoldDirection("next");
     }
-  }, [isFolding, isLeftFolding, phase, currentSpread, totalSpreads]);
+  }, [isFolding, isLeftFolding, phase, currentSpread, totalSpreads, isEditing]);
 
   const handleSaveContent = (c: string) => { if (leftPage) savePage(leftPage.id, c); };
   const handleSaveRightContent = (c: string) => { if (rightPage) savePage(rightPage.id, c); };
