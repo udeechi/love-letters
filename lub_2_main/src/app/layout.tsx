@@ -1,0 +1,38 @@
+import type { Metadata } from "next";
+import { Playfair_Display, Lora } from "next/font/google";
+import "./globals.css";
+
+const playfair = Playfair_Display({
+  variable: "--font-playfair",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800", "900"],
+});
+
+const lora = Lora({
+  variable: "--font-lora",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+export const metadata: Metadata = {
+  title: "Love Letters",
+  description: "A private notebook made with love",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover" as const,
+};
+
+export default function RootLayout({
+  children,
+}: LayoutProps<"/">) {
+  return (
+    <html lang="en" className={`${playfair.variable} ${lora.variable}`}>
+      <body className="min-h-screen bg-[#0d0a0f] text-[#e8dcc8] font-[family-name:var(--font-lora)] overflow-hidden">
+        {children}
+      </body>
+    </html>
+  );
+}

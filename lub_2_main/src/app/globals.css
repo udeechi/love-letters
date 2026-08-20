@@ -1,0 +1,345 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-burgundy-900: #2d0a1b;
+  --color-burgundy-800: #4a1028;
+  --color-burgundy-700: #6b1a3a;
+  --color-burgundy-600: #8b2252;
+  --color-burgundy-500: #a82d6a;
+  --color-navy-900: #0a0f1a;
+  --color-navy-800: #111827;
+  --color-navy-700: #1a2332;
+  --color-gold-500: #d4af37;
+  --color-gold-400: #e6c84d;
+  --color-gold-300: #f0d96a;
+  --color-gold-600: #b8962e;
+  --color-cream-50: #faf6ed;
+  --color-cream-100: #f5edd6;
+  --color-cream-200: #ede0bb;
+  --color-parchment: #f2e8d0;
+  --font-playfair: var(--font-playfair);
+  --font-lora: var(--font-lora);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0d0a0f;
+  background-image: url('/background_love.gif');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* Book Container */
+.book-viewport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100dvh;
+  perspective: 2200px;
+  background: radial-gradient(ellipse at center, rgba(26,21,32,0.6) 0%, rgba(13,10,15,0.7) 70%);
+}
+
+.book-scene {
+  position: relative;
+  width: min(65vw, calc(75vh * 4 / 3));
+  height: min(75vh, calc(65vw * 3 / 4));
+  max-width: 1560px;
+  max-height: 1170px;
+  aspect-ratio: 4 / 3;
+  transform-style: preserve-3d;
+}
+
+/* Tablet */
+@media (max-width: 1024px) {
+  .book-scene {
+    width: min(75vw, calc(70vh * 4 / 3));
+    height: min(70vh, calc(75vw * 3 / 4));
+    max-width: none;
+    max-height: none;
+    transform: scale(120%);
+  }
+}
+
+/* Mobile - single page, portrait */
+@media (max-width: 640px) {
+  .book-scene {
+    width: 88vw;
+    height: auto;
+    aspect-ratio: 3 / 4;
+    max-width: none;
+    max-height: 65vh;
+  }
+
+  .book-spine {
+    display: none;
+  }
+}
+
+/* Spine */
+.book-spine {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  transform: translateX(-50%) translateZ(-2px);
+  background: linear-gradient(
+    90deg,
+    #1a0d12 0%,
+    #2d1520 20%,
+    #3d1f2e 50%,
+    #2d1520 80%,
+    #1a0d12 100%
+  );
+  z-index: 20;
+  box-shadow:
+    inset 2px 0 4px rgba(212, 175, 55, 0.2),
+    inset -2px 0 4px rgba(212, 175, 55, 0.2);
+}
+
+.book-spine::before {
+  content: '';
+  position: absolute;
+  top: 10%;
+  bottom: 10%;
+  left: 3px;
+  right: 3px;
+  border-top: 1px solid rgba(212, 175, 55, 0.3);
+  border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+}
+
+/* Pages */
+.page-surface {
+  background-color: #f5edd6;
+  /* subtle noise texture */
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E"), linear-gradient(135deg, #f5edd6 0%, #f2e8d0 30%, #ede0bb 100%);
+  border-radius: 2px 8px 8px 2px;
+  position: relative;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.03);
+}
+
+/* Flat paper feel — no scroll, overflow hidden */
+
+/* Mobile: round all corners of single page */
+@media (max-width: 640px) {
+  .page-surface {
+    border-radius: 6px !important;
+  }
+  .page-surface::before {
+    display: none !important;
+  }
+}
+
+/* Crease shadow at the spine */
+.page-surface::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 40px;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.25) 0%,
+    rgba(0, 0, 0, 0.08) 30%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+.page-surface::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      transparent,
+      transparent 31px,
+      rgba(168, 138, 100, 0.12) 31px,
+      rgba(168, 138, 100, 0.12) 32px
+    );
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Page turn shadow */
+.page-shadow-right {
+  box-shadow:
+    4px 0 8px rgba(0, 0, 0, 0.15),
+    8px 0 16px rgba(0, 0, 0, 0.1),
+    16px 0 32px rgba(0, 0, 0, 0.05);
+}
+
+.page-shadow-left {
+  box-shadow:
+    -4px 0 8px rgba(0, 0, 0, 0.15),
+    -8px 0 16px rgba(0, 0, 0, 0.1),
+    -16px 0 32px rgba(0, 0, 0, 0.05);
+  border-radius: 8px 2px 2px 8px;
+}
+
+.page-shadow-left::before {
+  left: auto;
+  right: 0;
+  background: linear-gradient(
+    270deg,
+    rgba(0, 0, 0, 0.25) 0%,
+    rgba(0, 0, 0, 0.08) 30%,
+    transparent 100%
+  );
+}
+
+/* Gold decorations */
+.gold-border {
+  border: 1px solid rgba(212, 175, 55, 0.4);
+}
+
+.gold-glow {
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.15);
+}
+
+/* Keyhole */
+@keyframes keyhole-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(212, 175, 55, 0.3),
+                0 0 20px rgba(212, 175, 55, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(212, 175, 55, 0.5),
+                0 0 30px rgba(212, 175, 55, 0.2);
+  }
+}
+
+.keyhole-pulse {
+  animation: keyhole-glow 3s ease-in-out infinite;
+}
+
+/* Shake animation */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+.shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+/* TipTap Editor Styles */
+.tiptap-editor.ProseMirror {
+  outline: none;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 24px;
+  font-family: var(--font-lora);
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .tiptap-editor.ProseMirror {
+    padding: 12px 16px;
+  }
+}
+
+.tiptap-editor.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #b8a08a;
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+
+.tiptap-editor.ProseMirror h1,
+.tiptap-editor.ProseMirror h2,
+.tiptap-editor.ProseMirror h3 {
+  font-family: var(--font-playfair);
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
+}
+
+.tiptap-editor .ProseMirror h1 { font-size: 1.6em; }
+.tiptap-editor .ProseMirror h2 { font-size: 1.3em; }
+.tiptap-editor .ProseMirror h3 { font-size: 1.1em; }
+
+.tiptap-editor.ProseMirror strong {
+  font-weight: 700;
+}
+
+.tiptap-editor.ProseMirror em {
+}
+
+.tiptap-editor.ProseMirror u {
+  text-decoration-color: rgba(212, 175, 55, 0.6);
+  text-underline-offset: 3px;
+}
+
+.tiptap-editor.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 12px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.tiptap-editor.ProseMirror blockquote {
+  border-left: 3px solid rgba(212, 175, 55, 0.5);
+  padding-left: 16px;
+  margin-left: 0;
+  font-style: italic;
+}
+
+.tiptap-editor.ProseMirror hr {
+  border: none;
+  border-top: 1px solid rgba(212, 175, 55, 0.3);
+  margin: 24px 0;
+}
+
+.tiptap-editor.ProseMirror ul,
+.tiptap-editor.ProseMirror ol {
+  padding-left: 24px;
+}
+
+/* Decorative corners */
+.corner-decoration {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-color: rgba(212, 175, 55, 0.5);
+}
+
+.corner-tl {
+  top: 12px;
+  left: 12px;
+  border-top: 2px solid;
+  border-left: 2px solid;
+}
+
+.corner-tr {
+  top: 12px;
+  right: 12px;
+  border-top: 2px solid;
+  border-right: 2px solid;
+}
+
+.corner-bl {
+  bottom: 12px;
+  left: 12px;
+  border-bottom: 2px solid;
+  border-left: 2px solid;
+}
+
+.corner-br {
+  bottom: 12px;
+  right: 12px;
+  border-bottom: 2px solid;
+  border-right: 2px solid;
+}
