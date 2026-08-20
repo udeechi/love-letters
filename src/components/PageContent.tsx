@@ -83,7 +83,7 @@ export default function PageContent({
       a.style.overflow = "";
     }
 
-    const finalSize = Math.round(best * 10) / 10;
+    const finalSize = Math.floor(best * 10) / 10;
     proseMirror.style.fontSize = `${finalSize}px`;
     proseMirror.style.lineHeight = "1.7";
     proseMirror.style.overflow = "hidden";
