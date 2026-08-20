@@ -49,12 +49,19 @@ export default function PageContent({
     if (!proseMirror) return;
 
     const maxByWidth = Math.max(12, Math.min(36, Math.round(availW / 22)));
-    const text = proseMirror.textContent || "";
 
-    const pmCs = getComputedStyle(proseMirror);
-    const measure = document.createElement("div");
-    measure.style.cssText = "position:absolute;top:-9999px;left:-9999px;width:" + availW + "px;white-space:pre-wrap;word-wrap:break-word;padding:16px 24px;margin:0;box-sizing:border-box;font-family:" + pmCs.fontFamily + ";letter-spacing:" + pmCs.letterSpacing + ";word-spacing:" + pmCs.wordSpacing + ";";
-    document.body.appendChild(measure);
+    const ancestors: HTMLElement[] = [];
+    let el: HTMLElement | null = proseMirror;
+    while (el && el !== document.body) {
+      const cs = getComputedStyle(el);
+      if (cs.overflow === "hidden" || cs.overflow === "clip" || cs.overflowY === "hidden" || cs.overflowY === "clip") {
+        ancestors.push(el);
+        el.style.overflow = "visible";
+      }
+      el = el.parentElement;
+    }
+    proseMirror.style.overflow = "visible";
+    ancestors.push(proseMirror);
 
     let lo = 8;
     let hi = maxByWidth;
@@ -62,10 +69,9 @@ export default function PageContent({
 
     for (let i = 0; i < 16; i++) {
       const mid = (lo + hi) / 2;
-      measure.style.fontSize = `${mid}px`;
-      measure.style.lineHeight = "1.7";
-      measure.innerHTML = "<p style='margin:0'>" + text.replace(/</g, "&lt;") + "</p>";
-      if (measure.scrollHeight <= availH - 12) {
+      proseMirror.style.fontSize = `${mid}px`;
+      proseMirror.style.lineHeight = "1.7";
+      if (proseMirror.scrollHeight <= availH + 1) {
         best = mid;
         lo = mid + 0.05;
       } else {
@@ -73,11 +79,14 @@ export default function PageContent({
       }
     }
 
-    document.body.removeChild(measure);
+    for (const a of ancestors) {
+      a.style.overflow = "";
+    }
 
     const finalSize = Math.round(best * 10) / 10;
     proseMirror.style.fontSize = `${finalSize}px`;
     proseMirror.style.lineHeight = "1.7";
+    proseMirror.style.overflow = "hidden";
     setFontSize(finalSize);
   }, []);
 
