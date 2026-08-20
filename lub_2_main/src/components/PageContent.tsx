@@ -5,7 +5,8 @@ import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
-import { Color, TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
+import { TextStyle } from "@tiptap/extension-text-style";
 import { useEffect, useRef, useState, useCallback } from "react";
 
 const MAX_CHARS = 600;
@@ -177,10 +178,7 @@ export default function PageContent({
 
   useEffect(() => {
     if (!editor) return;
-    const { from, to } = editor.state.selection;
-    if (from !== to) {
-      editor.chain().focus().setColor(textColor).run();
-    }
+    editor.chain().setColor(textColor).run();
   }, [textColor, editor]);
 
   useEffect(() => {
@@ -197,7 +195,7 @@ export default function PageContent({
       <div ref={editorWrapRef} className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <EditorContent
           editor={editor}
-          style={{ color: textColor, fontSize: `${fontSize}px`, lineHeight: 1.7, flex: 1, display: 'flex', flexDirection: 'column' }}
+          style={{ fontSize: `${fontSize}px`, lineHeight: 1.7, flex: 1, display: 'flex', flexDirection: 'column' }}
         />
       </div>
 
