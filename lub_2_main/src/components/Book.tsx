@@ -130,14 +130,58 @@ export default function Book() {
   const handleSaveImages = (imgs: PageImage[]) => { if (leftPage) savePage(leftPage.id, leftPage.content, imgs); };
   const handleSaveRightImages = (imgs: PageImage[]) => { if (rightPage) savePage(rightPage.id, rightPage.content, imgs); };
   const handleSaveMobileImages = (imgs: PageImage[]) => { if (mobilePage) savePage(mobilePage.id, mobilePage.content, imgs); };
-  const handleDeletePage = async () => {
-    const target = isMobile ? mobilePage : (rightPage || leftPage);
-    if (target && pages.length > 1) {
-      await deletePage(target.id);
-      if (isMobile && mobilePageIndex >= pages.length - 1 && mobilePageIndex > 0) {
-        setMobilePageIndex((i) => i - 1);
+  const [choosingDeleteTarget, setChoosingDeleteTarget] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<NotebookPage | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletingPage, setIsDeletingPage] = useState(false);
+
+  const handlePromptDelete = () => {
+    if (pages.length <= 1) return;
+    setChoosingTarget(false);
+    if (isMobile) {
+      if (mobilePage) {
+        setDeleteTarget(mobilePage);
+        setShowDeleteConfirm(true);
+      }
+    } else {
+      if (leftPage && rightPage) {
+        setChoosingDeleteTarget((prev) => !prev);
+      } else if (leftPage || rightPage) {
+        setDeleteTarget(leftPage || rightPage);
+        setShowDeleteConfirm(true);
       }
     }
+  };
+
+  const handlePickDeletePage = (page: NotebookPage) => {
+    setChoosingDeleteTarget(false);
+    setDeleteTarget(page);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (deleteTarget && pages.length > 1) {
+      setIsDeletingPage(true);
+      try {
+        await deletePage(deleteTarget.id);
+        if (isMobile && mobilePageIndex >= pages.length - 1 && mobilePageIndex > 0) {
+          setMobilePageIndex((i) => i - 1);
+        }
+      } finally {
+        setIsDeletingPage(false);
+        setDeleteTarget(null);
+        setShowDeleteConfirm(false);
+      }
+    } else {
+      setDeleteTarget(null);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setChoosingDeleteTarget(false);
+    setDeleteTarget(null);
+    setShowDeleteConfirm(false);
   };
 
   const handlePickPage = (page: NotebookPage) => {
@@ -252,6 +296,7 @@ export default function Book() {
                     if (isMobile) {
                       if (mobilePage) handlePickPage(mobilePage);
                     } else {
+                      setChoosingDeleteTarget(false);
                       setChoosingTarget(true);
                     }
                   }}
@@ -375,6 +420,20 @@ export default function Book() {
                         </div>
                       </div>
                     )}
+                    {choosingDeleteTarget && leftPage && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/20 backdrop-blur-[2px]"
+                        style={{ zIndex: 25 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePickDeletePage(leftPage);
+                        }}
+                      >
+                        <div className="px-6 py-3 bg-[#2d0a1b]/85 border border-[#a82d6a]/60 rounded-sm backdrop-blur-sm text-[#f5edd6] font-[family-name:var(--font-playfair)] text-sm tracking-wider hover:bg-[#3d1028]/90 hover:border-[#a82d6a] shadow-lg shadow-[#a82d6a]/20 transition-all">
+                          Select
+                        </div>
+                      </div>
+                    )}
                     {isLeftFolding && (
                       <motion.div
                         className="absolute inset-0 pointer-events-none"
@@ -449,6 +508,20 @@ export default function Book() {
                         </div>
                       </div>
                     )}
+                    {choosingDeleteTarget && rightPage && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/20 backdrop-blur-[2px]"
+                        style={{ zIndex: 25 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePickDeletePage(rightPage);
+                        }}
+                      >
+                        <div className="px-6 py-3 bg-[#2d0a1b]/85 border border-[#a82d6a]/60 rounded-sm backdrop-blur-sm text-[#f5edd6] font-[family-name:var(--font-playfair)] text-sm tracking-wider hover:bg-[#3d1028]/90 hover:border-[#a82d6a] shadow-lg shadow-[#a82d6a]/20 transition-all">
+                          Select
+                        </div>
+                      </div>
+                    )}
                   </motion.div>
                 </>
               )}
@@ -463,7 +536,56 @@ export default function Book() {
                 </div>
               )}
 
-              {showPages && <div className="book-spine" />}
+              {showPages && (
+                <div
+                  className="book-spine"
+                  aria-hidden="true"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="100%"
+                    height="100%"
+                    style={{ position: "absolute", inset: 0, overflow: "visible" }}
+                    preserveAspectRatio="none"
+                  >
+                    <defs>
+                      <linearGradient id="ringGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#b06050" />
+                        <stop offset="30%" stopColor="#7a2820" />
+                        <stop offset="70%" stopColor="#4a1510" />
+                        <stop offset="100%" stopColor="#280a06" />
+                      </linearGradient>
+                      <filter id="ringShadow" x="-40%" y="-40%" width="180%" height="180%">
+                        <feDropShadow dx="1" dy="3" stdDeviation="2" floodColor="rgba(0,0,0,0.55)" />
+                      </filter>
+                      <pattern id="ringPattern" x="0" y="0" width="40" height="32" patternUnits="userSpaceOnUse">
+                        {/* Left hole */}
+                        <circle cx="8" cy="20" r="4" fill="rgba(0,0,0,0.7)" />
+                        {/* Right hole */}
+                        <circle cx="32" cy="14" r="4" fill="rgba(0,0,0,0.7)" />
+                        {/* Ring arc */}
+                        <path
+                          d="M 8 20 Q 20 7 32 14"
+                          fill="none"
+                          stroke="url(#ringGrad)"
+                          strokeWidth="5"
+                          strokeLinecap="round"
+                          filter="url(#ringShadow)"
+                        />
+                        {/* Highlight gloss */}
+                        <path
+                          d="M 9 19 Q 20 8 31 14"
+                          fill="none"
+                          stroke="rgba(255,200,180,0.25)"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      </pattern>
+                    </defs>
+                    <rect x="0" y="0" width="40" height="100%" fill="url(#ringPattern)" />
+                  </svg>
+                </div>
+              )}
             </motion.div>
 
             {phase === "open" && pages.length > 0 && (
@@ -476,12 +598,75 @@ export default function Book() {
                 onPrev={handlePrev}
                 onNext={handleNext}
                 onAddPage={createPage}
-                onDeletePage={handleDeletePage}
+                onDeletePage={handlePromptDelete}
                 isEditing={isEditing}
-                isSaving={false}
+                isSaving={isDeletingPage}
                 isMobile={isMobile}
               />
             )}
+
+            {/* 2-Step Page Deletion Glassmorphic Modal */}
+            <AnimatePresence>
+              {showDeleteConfirm && (
+                <motion.div
+                  key="delete-modal-overlay"
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25 }}
+                  onClick={handleCancelDelete}
+                >
+                  <motion.div
+                    className="relative w-full max-w-sm p-6 bg-[#1a0d12]/80 border border-[#d4af37]/30 rounded-sm shadow-2xl backdrop-blur-xl text-center"
+                    style={{
+                      boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(212, 175, 55, 0.15)",
+                    }}
+                    initial={{ scale: 0.9, opacity: 0, y: 15 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    exit={{ scale: 0.9, opacity: 0, y: 15 }}
+                    transition={{ type: "spring", stiffness: 350, damping: 25 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="absolute inset-0 rounded-sm border border-[#d4af37]/10 pointer-events-none" />
+
+                    <h3 className="font-[family-name:var(--font-playfair)] text-xl text-[#d4af37] tracking-wider mb-2">
+                      Delete Page
+                    </h3>
+
+                    <div className="w-16 h-[1px] bg-gradient-to-r from-transparent via-[#d4af37]/60 to-transparent mx-auto mb-4" />
+
+                    <p className="font-[family-name:var(--font-lora)] text-sm text-[#e8dcc8]/80 leading-relaxed mb-6">
+                      {deleteTarget
+                        ? `Are you sure you want to delete Page ${deleteTarget.page_number - 1}? This action cannot be undone.`
+                        : "Are you sure you want to delete this page? This action cannot be undone."}
+                    </p>
+
+                    <div className="flex items-center justify-center gap-3">
+                      <motion.button
+                        onClick={handleCancelDelete}
+                        disabled={isDeletingPage}
+                        className="px-5 py-2 rounded-sm border border-[#d4af37]/30 bg-transparent text-[#d4af37]/80 hover:bg-[#d4af37]/10 hover:text-[#d4af37] font-[family-name:var(--font-playfair)] text-xs tracking-widest uppercase transition-all"
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        Cancel
+                      </motion.button>
+
+                      <motion.button
+                        onClick={handleConfirmDelete}
+                        disabled={isDeletingPage}
+                        className="px-5 py-2 rounded-sm border border-[#a82d6a]/60 bg-[#a82d6a]/25 text-[#f5edd6] hover:bg-[#a82d6a]/40 hover:border-[#a82d6a] font-[family-name:var(--font-playfair)] text-xs tracking-widest uppercase shadow-lg shadow-[#a82d6a]/20 transition-all disabled:opacity-50"
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        {isDeletingPage ? "Deleting..." : "Delete"}
+                      </motion.button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

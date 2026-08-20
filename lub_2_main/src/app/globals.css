@@ -54,6 +54,8 @@ html, body {
   max-height: 1170px;
   aspect-ratio: 4 / 3;
   transform-style: preserve-3d;
+  will-change: transform;
+  outline: 1px solid transparent;
 }
 
 /* Tablet */
@@ -86,33 +88,41 @@ html, body {
 .book-spine {
   position: absolute;
   left: 50%;
+  top: 3%;
+  bottom: 3%;
+  width: 40px;
+  transform: translateX(-50%) translateZ(4px);
+  background: transparent;
+  z-index: 30;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.book-spine::after {
+  content: '';
+  position: absolute;
   top: 0;
   bottom: 0;
-  width: 20px;
-  transform: translateX(-50%) translateZ(-2px);
-  background: linear-gradient(
-    90deg,
-    #1a0d12 0%,
-    #2d1520 20%,
-    #3d1f2e 50%,
-    #2d1520 80%,
-    #1a0d12 100%
-  );
-  z-index: 20;
-  box-shadow:
-    inset 2px 0 4px rgba(212, 175, 55, 0.2),
-    inset -2px 0 4px rgba(212, 175, 55, 0.2);
+  left: 0;
+  right: 0;
+  background: 
+    radial-gradient(circle at 8px 20px, rgba(0,0,0,0.7) 4px, transparent 5px),
+    radial-gradient(circle at 32px 15px, rgba(0,0,0,0.7) 4px, transparent 5px);
+  background-size: 40px 32px;
+  background-repeat: repeat-y;
+  z-index: 1;
 }
 
 .book-spine::before {
   content: '';
   position: absolute;
-  top: 10%;
-  bottom: 10%;
-  left: 3px;
-  right: 3px;
-  border-top: 1px solid rgba(212, 175, 55, 0.3);
-  border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='32' viewBox='0 0 40 32'%3E%3Cdefs%3E%3ClinearGradient id='metal' x1='0%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23a85348'/%3E%3Cstop offset='30%25' stop-color='%236e221d'/%3E%3Cstop offset='70%25' stop-color='%2342120e'/%3E%3Cstop offset='100%25' stop-color='%23240806'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 7 20 Q 20 8 33 15' fill='none' stroke='url(%23metal)' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-size: 40px 32px;
+  background-repeat: repeat-y;
+  filter: drop-shadow(1px 4px 3px rgba(0, 0, 0, 0.5));
+  border: none;
+  z-index: 2;
 }
 
 /* Pages */
@@ -123,6 +133,9 @@ html, body {
   border-radius: 2px 8px 8px 2px;
   position: relative;
   box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.03);
+  outline: 1px solid transparent;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Flat paper feel — no scroll, overflow hidden */
