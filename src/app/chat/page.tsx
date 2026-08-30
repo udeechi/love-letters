@@ -143,8 +143,6 @@ export default function ChatPage() {
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editMessageText, setEditMessageText] = useState("");
-  const [typingUsers, setTypingUsers] = useState<string[]>([]);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -206,26 +204,9 @@ export default function ChatPage() {
       }
     });
 
-    // Typing status
-    const typingQ = query(collection(db, "typing"));
-    const unsubscribeTyping = onSnapshot(typingQ, (snapshot) => {
-      const now = Date.now();
-      const typing: string[] = [];
-      snapshot.forEach((doc) => {
-        if (doc.id !== username) {
-          const data = doc.data();
-          if (data.isTyping) {
-             typing.push(doc.id);
-          }
-        }
-      });
-      setTypingUsers(typing);
-    });
-
     return () => {
       unsubscribeMessages();
       unsubscribeBg();
-      unsubscribeTyping();
     };
   }, [isLoggedIn]);
 
@@ -351,28 +332,6 @@ export default function ChatPage() {
   const handleCancelEdit = () => {
     setEditingMessageId(null);
     setEditMessageText("");
-  };
-
-  const handleTyping = (text: string) => {
-    setNewMessage(text);
-    if (!username) return;
-    
-    try {
-      if (!text.trim()) {
-        setDoc(doc(db, "typing", username), { isTyping: false, timestamp: serverTimestamp() }).catch(() => {});
-        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        return;
-      }
-      
-      setDoc(doc(db, "typing", username), { isTyping: true, timestamp: serverTimestamp() }, { merge: true }).catch(() => {});
-      
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        setDoc(doc(db, "typing", username), { isTyping: false, timestamp: serverTimestamp() }).catch(() => {});
-      }, 3000);
-    } catch (e) {
-      // Ignore rule errors silently for typing
-    }
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -995,16 +954,6 @@ export default function ChatPage() {
               );
             })
           )}
-          {typingUsers.length > 0 && (
-            <div className="text-xs text-[#8a7a6a]/70 italic mt-2 ml-2 flex items-center gap-2 font-[family-name:var(--font-lora)]">
-              <span>{typingUsers.join(", ")} {typingUsers.length > 1 ? "are" : "is"} typing</span>
-              <span className="flex gap-0.5 mt-1">
-                <span className="w-1 h-1 bg-[#8a7a6a]/70 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1 h-1 bg-[#8a7a6a]/70 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1 h-1 bg-[#8a7a6a]/70 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </span>
-            </div>
-          )}
           <div ref={messagesEndRef} className="h-4" />
         </div>
       </main>
@@ -1084,7 +1033,7 @@ export default function ChatPage() {
               <input
                 type="text"
                 value={newMessage}
-                onChange={(e) => handleTyping(e.target.value)}
+                onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Whisper something..."
                 className="flex-1 min-w-0 bg-black/60 border border-[#d4af37]/30 rounded-full px-6 text-base text-[#f5edd6] focus:outline-none focus:border-[#d4af37]/60 shadow-inner"
               />
