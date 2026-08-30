@@ -14,6 +14,7 @@ interface Message {
   createdAt: any;
   attachmentUrl?: string;
   attachmentType?: "image" | "video" | "audio";
+  isEdited?: boolean;
 }
 
 const VoiceMessagePlayer = ({ src, isMe }: { src: string; isMe: boolean }) => {
@@ -142,6 +143,8 @@ export default function ChatPage() {
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editMessageText, setEditMessageText] = useState("");
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -203,9 +206,27 @@ export default function ChatPage() {
       }
     });
 
+    // Typing status
+    const typingQ = query(collection(db, "typing"));
+    const unsubscribeTyping = onSnapshot(typingQ, (snapshot) => {
+      const now = Date.now();
+      const typing: string[] = [];
+      snapshot.forEach((doc) => {
+        if (doc.id !== username) {
+          const data = doc.data();
+          if (data.isTyping && data.timestamp) {
+             const ts = data.timestamp.toMillis ? data.timestamp.toMillis() : Date.now();
+             if (now - ts < 5000) typing.push(doc.id);
+          }
+        }
+      });
+      setTypingUsers(typing);
+    });
+
     return () => {
       unsubscribeMessages();
       unsubscribeBg();
+      unsubscribeTyping();
     };
   }, [isLoggedIn]);
 
@@ -317,7 +338,8 @@ export default function ChatPage() {
     if (!editMessageText.trim()) return;
     try {
       await updateDoc(doc(db, "messages", id), {
-        text: editMessageText.trim()
+        text: editMessageText.trim(),
+        isEdited: true
       });
       setEditingMessageId(null);
       setEditMessageText("");
@@ -330,6 +352,23 @@ export default function ChatPage() {
   const handleCancelEdit = () => {
     setEditingMessageId(null);
     setEditMessageText("");
+  };
+
+  const handleTyping = (text: string) => {
+    setNewMessage(text);
+    if (!username) return;
+    if (!text.trim()) {
+      setDoc(doc(db, "typing", username), { isTyping: false, timestamp: serverTimestamp() });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      return;
+    }
+    
+    setDoc(doc(db, "typing", username), { isTyping: true, timestamp: serverTimestamp() }, { merge: true });
+    
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      setDoc(doc(db, "typing", username), { isTyping: false, timestamp: serverTimestamp() });
+    }, 3000);
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -891,8 +930,8 @@ export default function ChatPage() {
                     <div
                       className={`px-5 py-3 rounded-2xl max-w-[85%] sm:max-w-[70%] font-[family-name:var(--font-lora)] text-base shadow-lg transition-all ${
                         isMe
-                          ? "bg-[#d4af37]/15 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/30 shadow-[#d4af37]/5 cursor-pointer hover:bg-[#d4af37]/25"
-                          : "bg-black/60 text-[#e8dcc8] rounded-bl-sm border border-white/5 shadow-black/50"
+                          ? "bg-[#d4af37]/25 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/40 shadow-[#d4af37]/5 cursor-pointer hover:bg-[#d4af37]/30"
+                          : "bg-black/80 text-[#f5edd6] rounded-bl-sm border border-white/10 shadow-black/50"
                       }`}
                       style={{ wordBreak: "break-word" }}
                       onClick={() => isMe && !isEditing && setActiveMessageId(isActive ? null : msg.id)}
@@ -912,7 +951,10 @@ export default function ChatPage() {
                           </div>
                         </div>
                       ) : (
-                        msg.text
+                        <>
+                          {msg.text}
+                          {msg.isEdited && <span className="text-[10px] opacity-40 ml-2 italic font-sans">(edited)</span>}
+                        </>
                       )}
                     </div>
                   )}
@@ -929,7 +971,7 @@ export default function ChatPage() {
                         {msg.text && (
                           <button 
                             onClick={() => handleEditMessage(msg)}
-                            className="text-xs bg-white/5 hover:bg-white/10 text-white/70 hover:text-white px-3 py-1.5 rounded-full border border-white/10 transition-colors flex items-center gap-1.5"
+                            className="text-xs bg-white/20 hover:bg-white/30 text-white/90 hover:text-white px-3 py-1.5 rounded-full border border-white/20 transition-colors flex items-center gap-1.5"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
                             Edit
@@ -937,7 +979,7 @@ export default function ChatPage() {
                         )}
                         <button 
                           onClick={() => handleDeleteMessage(msg.id)}
-                          className="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 px-3 py-1.5 rounded-full border border-red-500/20 transition-colors flex items-center gap-1.5"
+                          className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 hover:text-red-200 px-3 py-1.5 rounded-full border border-red-500/30 transition-colors flex items-center gap-1.5"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                           Delete
@@ -948,6 +990,16 @@ export default function ChatPage() {
                 </div>
               );
             })
+          )}
+          {typingUsers.length > 0 && (
+            <div className="text-xs text-[#8a7a6a]/70 italic mt-2 ml-2 flex items-center gap-2 font-[family-name:var(--font-lora)]">
+              <span>{typingUsers.join(", ")} {typingUsers.length > 1 ? "are" : "is"} typing</span>
+              <span className="flex gap-0.5 mt-1">
+                <span className="w-1 h-1 bg-[#8a7a6a]/70 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1 h-1 bg-[#8a7a6a]/70 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1 h-1 bg-[#8a7a6a]/70 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </span>
+            </div>
           )}
           <div ref={messagesEndRef} className="h-4" />
         </div>
@@ -1028,7 +1080,7 @@ export default function ChatPage() {
               <input
                 type="text"
                 value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
+                onChange={(e) => handleTyping(e.target.value)}
                 placeholder="Whisper something..."
                 className="flex-1 min-w-0 bg-black/60 border border-[#d4af37]/30 rounded-full px-6 text-base text-[#f5edd6] focus:outline-none focus:border-[#d4af37]/60 shadow-inner"
               />
