@@ -214,9 +214,8 @@ export default function ChatPage() {
       snapshot.forEach((doc) => {
         if (doc.id !== username) {
           const data = doc.data();
-          if (data.isTyping && data.timestamp) {
-             const ts = data.timestamp.toMillis ? data.timestamp.toMillis() : Date.now();
-             if (now - ts < 5000) typing.push(doc.id);
+          if (data.isTyping) {
+             typing.push(doc.id);
           }
         }
       });
@@ -357,18 +356,23 @@ export default function ChatPage() {
   const handleTyping = (text: string) => {
     setNewMessage(text);
     if (!username) return;
-    if (!text.trim()) {
-      setDoc(doc(db, "typing", username), { isTyping: false, timestamp: serverTimestamp() });
+    
+    try {
+      if (!text.trim()) {
+        setDoc(doc(db, "typing", username), { isTyping: false, timestamp: serverTimestamp() }).catch(() => {});
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        return;
+      }
+      
+      setDoc(doc(db, "typing", username), { isTyping: true, timestamp: serverTimestamp() }, { merge: true }).catch(() => {});
+      
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      return;
+      typingTimeoutRef.current = setTimeout(() => {
+        setDoc(doc(db, "typing", username), { isTyping: false, timestamp: serverTimestamp() }).catch(() => {});
+      }, 3000);
+    } catch (e) {
+      // Ignore rule errors silently for typing
     }
-    
-    setDoc(doc(db, "typing", username), { isTyping: true, timestamp: serverTimestamp() }, { merge: true });
-    
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      setDoc(doc(db, "typing", username), { isTyping: false, timestamp: serverTimestamp() });
-    }, 3000);
   };
 
   const handleSend = async (e: React.FormEvent) => {
