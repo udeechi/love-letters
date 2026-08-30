@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, setDoc } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
 import { signInWithCustomToken, signOut } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import Link from "next/link";
@@ -139,6 +139,9 @@ export default function ChatPage() {
   const [isUploadingGlobal, setIsUploadingGlobal] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editMessageText, setEditMessageText] = useState("");
   const bgInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -292,6 +295,41 @@ export default function ChatPage() {
     } catch {
       console.error("Logout failed");
     }
+  };
+
+  const handleDeleteMessage = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "messages", id));
+      setActiveMessageId(null);
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      alert("Failed to delete message.");
+    }
+  };
+
+  const handleEditMessage = (msg: Message) => {
+    setEditingMessageId(msg.id);
+    setEditMessageText(msg.text || "");
+    setActiveMessageId(null);
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editMessageText.trim()) return;
+    try {
+      await updateDoc(doc(db, "messages", id), {
+        text: editMessageText.trim()
+      });
+      setEditingMessageId(null);
+      setEditMessageText("");
+    } catch (error) {
+      console.error("Error editing message:", error);
+      alert("Failed to update message.");
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditMessageText("");
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -795,6 +833,9 @@ export default function ChatPage() {
           ) : (
             messages.map((msg) => {
               const isMe = msg.sender === username;
+              const isActive = activeMessageId === msg.id;
+              const isEditing = editingMessageId === msg.id;
+
               return (
                 <div key={msg.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
                   <span className="text-xs text-[#8a7a6a]/70 uppercase tracking-widest mb-1 ml-2 mr-2 font-[family-name:var(--font-playfair)]">
@@ -803,7 +844,14 @@ export default function ChatPage() {
                   
                   {/* Media Attachment - Rendered OUTSIDE the text bubble */}
                   {msg.attachmentUrl && (
-                    <div className={`mb-2 max-w-[85%] sm:max-w-[70%] rounded-2xl overflow-hidden shadow-lg ${isMe ? 'shadow-[#d4af37]/5' : 'shadow-black/50'}`}>
+                    <div 
+                      className={`mb-2 max-w-[85%] sm:max-w-[70%] rounded-2xl overflow-hidden shadow-lg ${isMe ? 'shadow-[#d4af37]/5' : 'shadow-black/50'} ${isMe ? 'cursor-pointer hover:ring-1 ring-[#d4af37]/30' : ''}`}
+                      onClick={() => {
+                        if (isMe && msg.attachmentType !== 'image') {
+                          setActiveMessageId(isActive ? null : msg.id);
+                        }
+                      }}
+                    >
                       {msg.attachmentType === "video" ? (
                         <video 
                           src={msg.attachmentUrl} 
@@ -813,13 +861,27 @@ export default function ChatPage() {
                       ) : msg.attachmentType === "audio" ? (
                         <VoiceMessagePlayer src={msg.attachmentUrl} isMe={isMe} />
                       ) : (
-                        <img 
-                          src={msg.attachmentUrl} 
-                          alt="Attachment" 
-                          className="w-full h-auto max-h-[300px] object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                          loading="lazy"
-                          onClick={() => setSelectedImage(msg.attachmentUrl!)}
-                        />
+                        <div className="relative group cursor-pointer" onClick={() => setSelectedImage(msg.attachmentUrl!)}>
+                          <img 
+                            src={msg.attachmentUrl} 
+                            alt="Attachment" 
+                            className="w-full h-auto max-h-[300px] object-cover hover:opacity-90 transition-opacity"
+                            loading="lazy"
+                          />
+                          {isMe && (
+                            <div 
+                              className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-all flex items-start justify-end p-2"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMessageId(isActive ? null : msg.id);
+                              }}
+                            >
+                              <div className="opacity-0 group-hover:opacity-100 bg-black/60 rounded-full p-1.5 backdrop-blur-sm border border-white/10">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
@@ -827,16 +889,62 @@ export default function ChatPage() {
                   {/* Text Message - Rendered INSIDE the text bubble */}
                   {msg.text && (
                     <div
-                      className={`px-5 py-3 rounded-2xl max-w-[85%] sm:max-w-[70%] font-[family-name:var(--font-lora)] text-base shadow-lg ${
+                      className={`px-5 py-3 rounded-2xl max-w-[85%] sm:max-w-[70%] font-[family-name:var(--font-lora)] text-base shadow-lg transition-all ${
                         isMe
-                          ? "bg-[#d4af37]/15 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/30 shadow-[#d4af37]/5"
+                          ? "bg-[#d4af37]/15 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/30 shadow-[#d4af37]/5 cursor-pointer hover:bg-[#d4af37]/25"
                           : "bg-black/60 text-[#e8dcc8] rounded-bl-sm border border-white/5 shadow-black/50"
                       }`}
                       style={{ wordBreak: "break-word" }}
+                      onClick={() => isMe && !isEditing && setActiveMessageId(isActive ? null : msg.id)}
                     >
-                      {msg.text}
+                      {isEditing ? (
+                        <div className="flex flex-col gap-2 min-w-[200px]" onClick={e => e.stopPropagation()}>
+                          <textarea
+                            value={editMessageText}
+                            onChange={(e) => setEditMessageText(e.target.value)}
+                            className="w-full bg-black/40 border border-[#d4af37]/40 rounded-lg p-2 text-sm text-[#f5edd6] focus:outline-none focus:border-[#d4af37] resize-none"
+                            rows={3}
+                            autoFocus
+                          />
+                          <div className="flex justify-end gap-2 mt-1">
+                            <button onClick={handleCancelEdit} className="px-3 py-1 text-xs text-[#8a7a6a] hover:text-white transition-colors">Cancel</button>
+                            <button onClick={() => handleSaveEdit(msg.id)} disabled={!editMessageText.trim()} className="px-3 py-1 text-xs bg-[#d4af37]/30 text-[#d4af37] border border-[#d4af37]/40 rounded-md hover:bg-[#d4af37]/50 transition-colors disabled:opacity-50">Save</button>
+                          </div>
+                        </div>
+                      ) : (
+                        msg.text
+                      )}
                     </div>
                   )}
+
+                  {/* Action Menu */}
+                  <AnimatePresence>
+                    {isActive && !isEditing && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                        animate={{ opacity: 1, height: "auto", marginTop: 4 }}
+                        exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                        className="flex gap-2 overflow-hidden justify-end mr-1"
+                      >
+                        {msg.text && (
+                          <button 
+                            onClick={() => handleEditMessage(msg)}
+                            className="text-xs bg-white/5 hover:bg-white/10 text-white/70 hover:text-white px-3 py-1.5 rounded-full border border-white/10 transition-colors flex items-center gap-1.5"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                            Edit
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => handleDeleteMessage(msg.id)}
+                          className="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 px-3 py-1.5 rounded-full border border-red-500/20 transition-colors flex items-center gap-1.5"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                          Delete
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })
