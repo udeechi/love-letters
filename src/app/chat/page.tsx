@@ -483,15 +483,23 @@ export default function ChatPage() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: 48000,
-          channelCount: 1,
-          echoCancellation: true,
-          autoGainControl: true,
-          noiseSuppression: true,
-        },
-      });
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 48000,
+            channelCount: 1,
+            echoCancellation: true,
+            autoGainControl: true,
+            noiseSuppression: true,
+          },
+        });
+      } catch (e) {
+        console.warn("Strict audio constraints failed, falling back to basic audio:true", e);
+        // iOS Safari often fails on strict constraints (OverconstrainedError) before even prompting for permissions.
+        // Fallback to basic audio:true
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
 
       const mimeType = getSupportedMimeType();
       const options: MediaRecorderOptions = { audioBitsPerSecond: 192000 };
@@ -1014,9 +1022,7 @@ export default function ChatPage() {
           )}
           
           {isRecording ? (
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
+            <motion.div layoutId="recording-box"
               className="flex items-center justify-between bg-black/60 border border-red-500/50 rounded-full px-6 py-2 h-12"
             >
               <div className="flex items-center gap-3 text-red-400">
@@ -1069,7 +1075,7 @@ export default function ChatPage() {
                 </svg>
               </motion.button>
 
-              <motion.input whileFocus={{ scale: 1.01, boxShadow: "0 0 0 2px rgba(212,175,55,0.3)" }} type="text" value={newMessage}
+              <motion.input layoutId="recording-box" whileFocus={{ scale: 1.01, boxShadow: "0 0 0 2px rgba(212,175,55,0.3)" }} type="text" value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Whisper something..."
                 className="flex-1 min-w-0 bg-black/60 border border-[#d4af37]/30 rounded-full px-6 text-base text-[#f5edd6] focus:outline-none focus:border-[#d4af37]/60 shadow-inner"
