@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Lora } from "next/font/google";
 import "./globals.css";
+import PwaRegister from "@/components/PwaRegister";
 
 const playfair = Playfair_Display({
   variable: "--font-playfair",
@@ -15,14 +16,21 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "Love Letters",
+  title: "Whispers",
   description: "A private notebook made with love",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    title: "Whispers",
+    statusBarStyle: "black-translucent",
+    capable: true,
+  },
 };
 
 export const viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#1a0d12",
 };
 
 export default function RootLayout({
@@ -31,6 +39,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${playfair.variable} ${lora.variable}`}>
       <body className="min-h-screen bg-[#0d0a0f] text-[#e8dcc8] font-[family-name:var(--font-lora)] overflow-hidden">
+        <PwaRegister />
         {children}
       </body>
     </html>

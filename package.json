@@ -24,7 +24,7 @@
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.10.0",
     "firebase": "^12.18.0",
-    "firebase-admin": "^14.3.0",
+    "firebase-admin": "^11.11.1",
     "framer-motion": "^13.1.0",
     "jose": "^6.2.9",
     "moveable": "^0.53.0",
