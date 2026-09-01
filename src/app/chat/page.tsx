@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { collection, query, orderBy, onSnapshot, addDoc, limit, serverTimestamp, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
 import { ref, onValue, set, onDisconnect, remove } from "firebase/database";
 import { signInWithCustomToken, signOut } from "firebase/auth";
 import { db, auth, rtdb } from "@/lib/firebase";
@@ -135,8 +136,13 @@ export default function ChatPage() {
   const [authMode, setAuthMode] = useState<"login" | "popup" | "reg_user" | "reg_pass">("login");
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [messageLimit, setMessageLimit] = useState(50);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [newMessage, setNewMessage] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  
   
   const [globalBackground, setGlobalBackground] = useState<string | null>(null);
   const [isUploadingGlobal, setIsUploadingGlobal] = useState(false);
@@ -222,16 +228,14 @@ export default function ChatPage() {
     if (!isLoggedIn) return;
 
     // Messages
-    const q = query(collection(db, "messages"), orderBy("createdAt", "asc"));
+    const q = query(collection(db, "messages"), orderBy("createdAt", "desc"), limit(messageLimit));
     const unsubscribeMessages = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       })) as Message[];
-      setMessages(msgs);
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }, 100);
+      setMessages(msgs.reverse());
+      setHasMore(snapshot.docs.length === messageLimit);
     });
 
     // Global Background
@@ -634,6 +638,9 @@ export default function ChatPage() {
   };
 
 
+  // Auto-scroll when someone starts typing
+
+
   if (isCheckingAuth) {
     return (
       <div className="min-h-[100dvh] bg-[#11080d] flex items-center justify-center font-[family-name:var(--font-lora)]">
@@ -919,20 +926,68 @@ export default function ChatPage() {
       </motion.header>
 
       {/* Messages */}
-      <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.2 }} className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 z-10 scroll-smooth">
-        <div className="max-w-3xl mx-auto space-y-6">
-          {messages.length === 0 ? (
-            <div className="text-center text-[#8a7a6a]/60 font-[family-name:var(--font-lora)] text-lg italic mt-20">
-              The room is silent. Start a whisper...
-            </div>
-          ) : (
-            messages.map((msg) => {
-              const isMe = msg.sender === username;
-              const isActive = activeMessageId === msg.id;
-              const isEditing = editingMessageId === msg.id;
+            <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.2 }} className="flex-1 relative z-10 flex flex-col min-h-0">
+        <Virtuoso
+          ref={virtuosoRef}
+          className="w-full h-full"
+          data={messages}
+          firstItemIndex={1000000 - messages.length}
+          computeItemKey={(index, item) => item.id}
+          initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
+          followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
+          atBottomStateChange={(atBottom) => setShowScrollBottom(!atBottom)}
+          startReached={() => {
+            if (hasMore && !loadingMore) {
+              setLoadingMore(true);
+              setMessageLimit(prev => prev + 50);
+              setTimeout(() => setLoadingMore(false), 500);
+            }
+          }}
+          components={{
+            Header: () => (
+              messages.length === 0 ? (
+                <div className="text-center text-[#8a7a6a]/60 font-[family-name:var(--font-lora)] text-lg italic mt-20">
+                  The room is silent. Start a whisper...
+                </div>
+              ) : (
+                <div className="h-4" />
+              )
+            ),
+            Footer: () => (
+              <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+                <AnimatePresence>
+            {typingUsers.length > 0 && (
+              <motion.div
+                layout
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.4, type: "spring", bounce: 0.3 }}
+                className="flex flex-col items-start relative p-2 -mx-2"
+              >
+                <span className="text-xs text-[#8a7a6a]/70 uppercase tracking-widest mb-1 ml-2 font-[family-name:var(--font-playfair)]">
+                  {typingUsers.join(', ')}
+                </span>
+                <div className="px-5 py-4 rounded-2xl bg-black/80 rounded-bl-sm border border-white/10 shadow-black/50 shadow-lg flex items-center gap-1.5">
+                  <motion.span animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
+                  <motion.span animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
+                  <motion.span animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+                <div className="h-4" />
+              </div>
+            )
+          }}
+          itemContent={(index, msg) => {
+            const isMe = msg.sender === username;
+            const isActive = activeMessageId === msg.id;
+            const isEditing = editingMessageId === msg.id;
 
-              return (
-                <motion.div 
+            return (
+              <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-3 w-full">
+                                <motion.div 
                     layout
                     key={msg.id} 
                     initial={{ opacity: 0, scale: 0.95, y: 20 }} 
@@ -1087,33 +1142,29 @@ export default function ChatPage() {
                     )}
                   </AnimatePresence>
                 </motion.div>
-              );
-            })
-          )}
-          <div ref={messagesEndRef} className="h-4" />
-        </div>
-      </motion.main>
-
-      {/* Input */}
-      <div className="flex-none max-w-3xl mx-auto w-full px-4 sm:px-6 z-10 flex flex-col justify-end pointer-events-none mb-2">
-        <AnimatePresence>
-          {typingUsers.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 10, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 5, scale: 0.9 }}
-              className="self-start bg-black/60 border border-white/10 rounded-full px-4 py-2 flex items-center gap-2 mb-2 pointer-events-auto shadow-lg backdrop-blur-md"
-            >
-              <span className="text-xs text-white/50">{typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing</span>
-              <div className="flex gap-1">
-                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
-                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
-                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
               </div>
-            </motion.div>
+            );
+          }}
+        />
+        
+        <AnimatePresence>
+          {showScrollBottom && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 20 }}
+              onClick={() => virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' })}
+              className="absolute bottom-6 right-6 lg:right-12 bg-black/80 border border-[#d4af37]/30 text-[#d4af37] p-3 rounded-full shadow-lg z-50 hover:bg-[#d4af37]/20 transition-colors backdrop-blur-md"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </motion.button>
           )}
         </AnimatePresence>
-      </div>
+      </motion.main>
+
+
 
       <motion.footer initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="flex-none p-4 sm:p-6 border-t border-[#d4af37]/20 bg-black/40 backdrop-blur-md z-10">
         <div className="max-w-3xl mx-auto relative">
