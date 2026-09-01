@@ -133,6 +133,45 @@ const VoiceMessagePlayer = ({ src, isMe }: { src: string; isMe: boolean }) => {
   );
 };
 
+
+
+const IgEmbed = ({ reelId, msgId, setActiveMessageId }: { reelId: string, msgId: string, setActiveMessageId: (id: string | null) => void }) => {
+  return (
+    <div 
+      className="relative w-[280px] sm:w-[320px] max-w-full rounded-3xl overflow-hidden shadow-2xl bg-black border border-white/10 mx-auto mt-1"
+      style={{ aspectRatio: '9/16' }}
+    >
+      {/* Options Button so they can Reply/Delete without an overlay blocking the video */}
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveMessageId(msgId);
+        }}
+        className="absolute top-3 right-3 z-20 w-8 h-8 bg-black/60 hover:bg-black/80 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/20 shadow-lg transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+      </button>
+
+      {/* The actual iframe, fully interactive so tap-to-play works */}
+      <iframe 
+        src={`https://www.instagram.com/p/${reelId}/embed/?hidecaption=1`} 
+        className="absolute top-0 left-0 w-[102%] h-[115%] -mt-[8%] -ml-[1%]"
+        frameBorder="0" 
+        scrolling="no" 
+        allowTransparency={true}
+        allow="encrypted-media"
+      ></iframe>
+    </div>
+  );
+};
+
+const parseIgLinks = (text: string) => {
+  const igRegex = /https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel)\/([a-zA-Z0-9_-]+)(?:\S*)/g;
+  const linkIds = [...text.matchAll(igRegex)].map(m => m[1]); // Extract JUST the ID
+  const cleanText = text.replace(igRegex, '').trim();
+  return { cleanText, linkIds };
+};
+
 export default function ChatPage() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -1201,8 +1240,24 @@ export default function ChatPage() {
                         </div>
                       ) : (
                         <>
-                          {msg.text}
-                          {msg.isEdited && <span className="text-[10px] opacity-40 ml-2 italic font-sans">(edited)</span>}
+                          {(() => {
+                            if (!msg.text) return null;
+                            const { cleanText, linkIds } = parseIgLinks(msg.text);
+                            
+                            return (
+                              <div className="flex flex-col gap-1 w-full">
+                                {cleanText && (
+                                  <div className="break-words">
+                                    {cleanText}
+                                    {msg.isEdited && <span className="text-[10px] opacity-40 ml-2 italic font-sans">(edited)</span>}
+                                  </div>
+                                )}
+                                {linkIds.map((id, i) => (
+                                  <IgEmbed key={i} reelId={id} msgId={msg.id} setActiveMessageId={setActiveMessageId} />
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </>
                       )}
                     </div>
