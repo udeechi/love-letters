@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
+import { ref, onValue, set, onDisconnect, remove } from "firebase/database";
 import { signInWithCustomToken, signOut } from "firebase/auth";
-import { db, auth } from "@/lib/firebase";
+import { db, auth, rtdb } from "@/lib/firebase";
 import Link from "next/link";
 
 interface Message {
@@ -15,6 +16,7 @@ interface Message {
   attachmentUrl?: string;
   attachmentType?: "image" | "video" | "audio";
   isEdited?: boolean;
+  replyToId?: string;
 }
 
 const VoiceMessagePlayer = ({ src, isMe }: { src: string; isMe: boolean }) => {
@@ -141,6 +143,7 @@ export default function ChatPage() {
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const hasLongPressed = useRef(false);
 
@@ -159,6 +162,15 @@ export default function ChatPage() {
     }
   };
 
+  const scrollToMessage = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedMessageId(id);
+      setTimeout(() => setHighlightedMessageId(null), 2000);
+    }
+  };
+
   const handleImageClick = (e: React.MouseEvent, url: string) => {
     if (hasLongPressed.current) {
       hasLongPressed.current = false;
@@ -168,6 +180,9 @@ export default function ChatPage() {
   };
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editMessageText, setEditMessageText] = useState("");
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -229,11 +244,28 @@ export default function ChatPage() {
       }
     });
 
+    const typingRef = ref(rtdb, "typing");
+    const unsubscribeTyping = onValue(typingRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const typers = Object.keys(data).filter(user => user !== username && data[user] === true);
+        setTypingUsers(typers);
+      } else {
+        setTypingUsers([]);
+      }
+    });
+
+    if (username) {
+      const myTypingRef = ref(rtdb, `typing/${username}`);
+      onDisconnect(myTypingRef).remove();
+    }
+
     return () => {
       unsubscribeMessages();
       unsubscribeBg();
+      unsubscribeTyping();
     };
-  }, [isLoggedIn]);
+  }, [isLoggedIn, username]);
 
   const handleRegister = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -359,19 +391,43 @@ export default function ChatPage() {
     setEditMessageText("");
   };
 
+  const handleTyping = (text: string) => {
+    setNewMessage(text);
+    if (!username) return;
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    } else {
+      set(ref(rtdb, `typing/${username}`), true).catch(() => {});
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      remove(ref(rtdb, `typing/${username}`)).catch(() => {});
+      typingTimeoutRef.current = null;
+    }, 2000);
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
     
     const text = newMessage;
     setNewMessage("");
+    const payload: any = {
+      text: text,
+      sender: username,
+      createdAt: serverTimestamp(),
+    };
+    if (replyingTo) payload.replyToId = replyingTo.id;
 
     try {
-      await addDoc(collection(db, "messages"), {
-        text: text,
-        sender: username,
-        createdAt: serverTimestamp(),
-      });
+      await addDoc(collection(db, "messages"), payload);
+      setReplyingTo(null);
+      remove(ref(rtdb, `typing/${username}`)).catch(() => {});
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
     } catch (error) {
       console.error("Error sending message:", error);
     }
@@ -435,13 +491,16 @@ export default function ChatPage() {
       const uploadData = await uploadToCloudinary(file);
       if (uploadData) {
         const isVideo = uploadData.resource_type === "video";
-        await addDoc(collection(db, "messages"), {
+        const payload: any = {
           text: "", // Optional text, maybe future caption support
           attachmentUrl: uploadData.secure_url,
           attachmentType: isVideo ? "video" : "image",
           sender: username,
           createdAt: serverTimestamp(),
-        });
+        };
+        if (replyingTo) payload.replyToId = replyingTo.id;
+        await addDoc(collection(db, "messages"), payload);
+        setReplyingTo(null);
       }
     } catch (error) {
       console.error("File upload error:", error);
@@ -555,13 +614,16 @@ export default function ChatPage() {
       
       const uploadData = await uploadToCloudinary(file);
       if (uploadData) {
-        await addDoc(collection(db, "messages"), {
+        const payload: any = {
           text: "", 
           attachmentUrl: uploadData.secure_url,
           attachmentType: "audio",
           sender: username,
           createdAt: serverTimestamp(),
-        });
+        };
+        if (replyingTo) payload.replyToId = replyingTo.id;
+        await addDoc(collection(db, "messages"), payload);
+        setReplyingTo(null);
       }
     } catch (error) {
       console.error("Audio upload error:", error);
@@ -876,18 +938,36 @@ export default function ChatPage() {
                     initial={{ opacity: 0, scale: 0.95, y: 20 }} 
                     animate={{ opacity: 1, scale: 1, y: 0 }} 
                     transition={{ duration: 0.4, type: "spring", bounce: 0.3 }}
-                    className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
+                    className={`flex flex-col ${isMe ? "items-end" : "items-start"} relative p-2 -mx-2 rounded-2xl transition-colors duration-500 ${highlightedMessageId === msg.id ? "bg-white/10" : "bg-transparent"}`} id={msg.id}
                   >
                   <span className="text-xs text-[#8a7a6a]/70 uppercase tracking-widest mb-1 ml-2 mr-2 font-[family-name:var(--font-playfair)]">
                     {msg.sender}
                   </span>
                   
+                  {msg.replyToId && (() => {
+                    const replyMsg = messages.find(m => m.id === msg.replyToId);
+                    if (!replyMsg) return null;
+                    return (
+                      <div 
+                        onClick={() => scrollToMessage(msg.replyToId!)} 
+                        className={`mb-2 z-0 px-4 py-2 rounded-xl text-xs bg-black/40 border border-white/10 cursor-pointer hover:bg-black/60 transition-colors max-w-[85%] sm:max-w-[70%] overflow-hidden shadow-sm ${isMe ? 'mr-1' : 'ml-1'}`}
+                      >
+                        <div className="text-[#d4af37] opacity-90 font-bold mb-0.5 font-[family-name:var(--font-playfair)]">
+                          {replyMsg.sender}
+                        </div>
+                        <div className="truncate text-white/70 font-sans">
+                          {replyMsg.text || (replyMsg.attachmentType ? `[${replyMsg.attachmentType}]` : "...")}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  
                   {/* Media Attachment - Rendered OUTSIDE the text bubble */}
                   {msg.attachmentUrl && (
                     <div 
-                      className={`mb-2 max-w-[85%] sm:max-w-[70%] rounded-2xl overflow-hidden shadow-lg ${isMe ? 'shadow-[#d4af37]/5' : 'shadow-black/50'} ${isMe ? 'cursor-pointer hover:ring-1 ring-[#d4af37]/30' : ''}`}
+                      className={`mb-2 max-w-[85%] sm:max-w-[70%] rounded-2xl overflow-hidden shadow-lg ${isMe ? 'shadow-[#d4af37]/5' : 'shadow-black/50'} cursor-pointer hover:ring-1 ring-white/10`}
                       onClick={() => {
-                        if (isMe && msg.attachmentType !== 'image') {
+                        if (msg.attachmentType !== 'image') {
                           setActiveMessageId(isActive ? null : msg.id);
                         }
                       }}
@@ -904,7 +984,7 @@ export default function ChatPage() {
                         <div 
                           className="relative group cursor-pointer" 
                           onClick={(e) => handleImageClick(e, msg.attachmentUrl!)}
-                          onTouchStart={() => isMe ? startLongPress(msg.id) : undefined}
+                          onTouchStart={() => startLongPress(msg.id)}
                           onTouchEnd={cancelLongPress}
                           onTouchMove={cancelLongPress}
                           onContextMenu={(e) => {
@@ -941,10 +1021,10 @@ export default function ChatPage() {
                       className={`px-5 py-3 rounded-2xl max-w-[85%] sm:max-w-[70%] font-[family-name:var(--font-lora)] text-base shadow-lg transition-all ${
                         isMe
                           ? "bg-[#d4af37]/25 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/40 shadow-[#d4af37]/5 cursor-pointer hover:bg-[#d4af37]/30"
-                          : "bg-black/80 text-[#f5edd6] rounded-bl-sm border border-white/10 shadow-black/50"
+                          : "bg-black/80 text-[#f5edd6] rounded-bl-sm border border-white/10 shadow-black/50 cursor-pointer hover:bg-black/70"
                       }`}
                       style={{ wordBreak: "break-word" }}
-                      onClick={() => isMe && !isEditing && setActiveMessageId(isActive ? null : msg.id)}
+                      onClick={() => !isEditing && setActiveMessageId(isActive ? null : msg.id)}
                     >
                       {isEditing ? (
                         <div className="flex flex-col gap-2 min-w-[200px]" onClick={e => e.stopPropagation()}>
@@ -976,9 +1056,9 @@ export default function ChatPage() {
                         initial={{ opacity: 0, height: 0, marginTop: 0 }}
                         animate={{ opacity: 1, height: "auto", marginTop: 4 }}
                         exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                        className="flex gap-2 overflow-hidden justify-end mr-1"
+                        className={`flex gap-2 overflow-hidden ${isMe ? "justify-end mr-1" : "justify-start ml-2"}`}
                       >
-                        {msg.text && (
+                        {isMe && msg.text && (
                           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
                             onClick={() => handleEditMessage(msg)}
                             className="text-xs bg-white/20 hover:bg-white/30 text-white/90 hover:text-white px-3 py-1.5 rounded-full border border-white/20 transition-colors flex items-center gap-1.5"
@@ -987,13 +1067,22 @@ export default function ChatPage() {
                             Edit
                           </motion.button>
                         )}
-                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
-                          onClick={() => handleDeleteMessage(msg.id)}
-                          className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 hover:text-red-200 px-3 py-1.5 rounded-full border border-red-500/30 transition-colors flex items-center gap-1.5"
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                          onClick={() => { setReplyingTo(msg); setActiveMessageId(null); }}
+                          className="text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 px-3 py-1.5 rounded-full border border-blue-500/30 transition-colors flex items-center gap-1.5"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                          Delete
+                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>
+                          Reply
                         </motion.button>
+                        {isMe && (
+                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
+                            onClick={() => handleDeleteMessage(msg.id)}
+                            className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 hover:text-red-200 px-3 py-1.5 rounded-full border border-red-500/30 transition-colors flex items-center gap-1.5"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            Delete
+                          </motion.button>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1006,8 +1095,46 @@ export default function ChatPage() {
       </motion.main>
 
       {/* Input */}
+      <div className="flex-none max-w-3xl mx-auto w-full px-4 sm:px-6 z-10 flex flex-col justify-end pointer-events-none mb-2">
+        <AnimatePresence>
+          {typingUsers.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 5, scale: 0.9 }}
+              className="self-start bg-black/60 border border-white/10 rounded-full px-4 py-2 flex items-center gap-2 mb-2 pointer-events-auto shadow-lg backdrop-blur-md"
+            >
+              <span className="text-xs text-white/50">{typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing</span>
+              <div className="flex gap-1">
+                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
+                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
+                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }} className="w-1.5 h-1.5 bg-[#d4af37]/70 rounded-full" />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       <motion.footer initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="flex-none p-4 sm:p-6 border-t border-[#d4af37]/20 bg-black/40 backdrop-blur-md z-10">
         <div className="max-w-3xl mx-auto relative">
+          <AnimatePresence>
+            {replyingTo && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: 10, height: 0 }}
+                className="mb-3 px-4 py-2 bg-black/60 border border-[#d4af37]/30 rounded-xl relative overflow-hidden flex items-center justify-between shadow-lg"
+              >
+                <div className="flex flex-col truncate pr-4">
+                  <span className="text-xs text-[#d4af37] font-bold mb-0.5 font-[family-name:var(--font-playfair)]">Replying to {replyingTo.sender}</span>
+                  <span className="text-xs text-white/60 truncate">{replyingTo.text || (replyingTo.attachmentType ? `[${replyingTo.attachmentType}]` : "...")}</span>
+                </div>
+                <button type="button" onClick={() => setReplyingTo(null)} className="text-white/40 hover:text-white/80 transition-colors bg-white/5 hover:bg-white/10 rounded-full p-1.5 flex-none">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <input
             type="file"
             accept="image/*,video/*"
@@ -1076,7 +1203,7 @@ export default function ChatPage() {
               </motion.button>
 
               <motion.input layoutId="recording-box" whileFocus={{ scale: 1.01, boxShadow: "0 0 0 2px rgba(212,175,55,0.3)" }} type="text" value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
+                onChange={(e) => handleTyping(e.target.value)}
                 placeholder="Whisper something..."
                 className="flex-1 min-w-0 bg-black/60 border border-[#d4af37]/30 rounded-full px-6 text-base text-[#f5edd6] focus:outline-none focus:border-[#d4af37]/60 shadow-inner"
               />
