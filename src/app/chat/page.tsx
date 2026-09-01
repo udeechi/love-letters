@@ -3,11 +3,18 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import EmojiPicker, { Theme } from "emoji-picker-react";
 import { collection, query, orderBy, onSnapshot, addDoc, limit, serverTimestamp, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
 import { ref, onValue, set, onDisconnect, remove } from "firebase/database";
 import { signInWithCustomToken, signOut } from "firebase/auth";
 import { db, auth, rtdb } from "@/lib/firebase";
 import Link from "next/link";
+
+interface CustomSticker {
+  id: string;
+  url: string;
+  uploadedBy: string;
+}
 
 interface Message {
   id: string;
@@ -15,7 +22,7 @@ interface Message {
   sender: string;
   createdAt: any;
   attachmentUrl?: string;
-  attachmentType?: "image" | "video" | "audio";
+  attachmentType?: "image" | "video" | "audio" | "sticker";
   isEdited?: boolean;
   replyToId?: string;
 }
@@ -141,7 +148,16 @@ export default function ChatPage() {
   const [messageLimit, setMessageLimit] = useState(50);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [isInitialLoaded, setIsInitialLoaded] = useState(false);
   const [newMessage, setNewMessage] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [customStickers, setCustomStickers] = useState<CustomSticker[]>([]);
+  const stickerInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingSticker, setIsUploadingSticker] = useState(false);
+  const pickerRef = useRef<HTMLFormElement>(null);
+  const isAtBottomRef = useRef(true);
+  const prevMsgsLengthRef = useRef(0);
   
   
   const [globalBackground, setGlobalBackground] = useState<string | null>(null);
@@ -199,6 +215,18 @@ export default function ChatPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Close pickers on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+        setShowStickerPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // Check auth status on mount
   useEffect(() => {
     checkAuth();
@@ -236,9 +264,20 @@ export default function ChatPage() {
       })) as Message[];
       setMessages(msgs.reverse());
       setHasMore(snapshot.docs.length === messageLimit);
+      setIsInitialLoaded(true);
     });
 
-    // Global Background
+          // Stickers
+      const stickersQuery = query(collection(db, "stickers"), orderBy("createdAt", "desc"));
+      const unsubscribeStickers = onSnapshot(stickersQuery, (snapshot) => {
+        const fetchedStickers = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as CustomSticker[];
+        setCustomStickers(fetchedStickers);
+      });
+      
+      // Global Background
     const bgRef = doc(db, "settings", "chat_config");
     const unsubscribeBg = onSnapshot(bgRef, (snapshot) => {
       if (snapshot.exists() && snapshot.data().backgroundUrl) {
@@ -268,8 +307,30 @@ export default function ChatPage() {
       unsubscribeMessages();
       unsubscribeBg();
       unsubscribeTyping();
+      unsubscribeStickers();
     };
-  }, [isLoggedIn, username]);
+  }, [isLoggedIn, username, messageLimit]);
+
+  // Auto-scroll when typing indicator appears if we are at bottom
+  useEffect(() => {
+    if (typingUsers.length > 0 && isAtBottomRef.current) {
+      setTimeout(() => {
+        virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
+      }, 50);
+    }
+  }, [typingUsers]);
+
+  // Bulletproof auto-scroll logic
+  useEffect(() => {
+    if (messages.length > prevMsgsLengthRef.current) {
+      if (isAtBottomRef.current) {
+        setTimeout(() => {
+          virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
+        }, 50);
+      }
+    }
+    prevMsgsLengthRef.current = messages.length;
+  }, [messages.length]);
 
   const handleRegister = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -417,6 +478,8 @@ export default function ChatPage() {
     
     const text = newMessage;
     setNewMessage("");
+    // Force scroll down when you send a message
+    virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
     const payload: any = {
       text: text,
       sender: username,
@@ -484,6 +547,36 @@ export default function ChatPage() {
     } finally {
       setIsUploadingGlobal(false);
       if (bgInputRef.current) bgInputRef.current.value = "";
+    }
+  };
+
+    const handleStickerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingSticker(true);
+    try {
+      const uploadData = await uploadToCloudinary(file);
+      if (uploadData) {
+        await addDoc(collection(db, "stickers"), {
+          url: uploadData.secure_url,
+          uploadedBy: username,
+          createdAt: serverTimestamp()
+        });
+      }
+    } catch (error) {
+      console.error("Sticker upload error:", error);
+      alert("Failed to upload sticker.");
+    } finally {
+      setIsUploadingSticker(false);
+      if (stickerInputRef.current) stickerInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteSticker = async (stickerId: string) => {
+    try {
+      await deleteDoc(doc(db, "stickers", stickerId));
+    } catch(error) {
+      console.error("Failed to delete sticker", error);
     }
   };
 
@@ -927,15 +1020,21 @@ export default function ChatPage() {
 
       {/* Messages */}
             <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.2 }} className="flex-1 relative z-10 flex flex-col min-h-0">
+        {isInitialLoaded && (
         <Virtuoso
           ref={virtuosoRef}
           className="w-full h-full"
+          alignToBottom
           data={messages}
           firstItemIndex={1000000 - messages.length}
           computeItemKey={(index, item) => item.id}
           initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
           followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
-          atBottomStateChange={(atBottom) => setShowScrollBottom(!atBottom)}
+          atBottomThreshold={150}
+          atBottomStateChange={(atBottom) => {
+            setShowScrollBottom(!atBottom);
+            isAtBottomRef.current = atBottom;
+          }}
           startReached={() => {
             if (hasMore && !loadingMore) {
               setLoadingMore(true);
@@ -988,11 +1087,7 @@ export default function ChatPage() {
             return (
               <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-3 w-full">
                                 <motion.div 
-                    layout
-                    key={msg.id} 
-                    initial={{ opacity: 0, scale: 0.95, y: 20 }} 
-                    animate={{ opacity: 1, scale: 1, y: 0 }} 
-                    transition={{ duration: 0.4, type: "spring", bounce: 0.3 }}
+                    key={msg.id}
                     className={`flex flex-col ${isMe ? "items-end" : "items-start"} relative p-2 -mx-2 rounded-2xl transition-colors duration-500 ${highlightedMessageId === msg.id ? "bg-white/10" : "bg-transparent"}`} id={msg.id}
                   >
                   <span className="text-xs text-[#8a7a6a]/70 uppercase tracking-widest mb-1 ml-2 mr-2 font-[family-name:var(--font-playfair)]">
@@ -1035,6 +1130,15 @@ export default function ChatPage() {
                         />
                       ) : msg.attachmentType === "audio" ? (
                         <VoiceMessagePlayer src={msg.attachmentUrl} isMe={isMe} />
+                      ) : msg.attachmentType === "sticker" ? (
+                        <div className="w-40 h-40 overflow-hidden flex items-center justify-center p-1 bg-transparent">
+                          <img 
+                            src={msg.attachmentUrl} 
+                            alt="Sticker" 
+                            className="w-full h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
+                            loading="lazy"
+                          />
+                        </div>
                       ) : (
                         <div 
                           className="relative group cursor-pointer" 
@@ -1146,6 +1250,7 @@ export default function ChatPage() {
             );
           }}
         />
+        )}
         
         <AnimatePresence>
           {showScrollBottom && (
@@ -1225,7 +1330,47 @@ export default function ChatPage() {
               </div>
             </motion.div>
           ) : (
-            <form onSubmit={handleSend} className="flex gap-3 h-12">
+            <form onSubmit={handleSend} className="flex gap-3 h-12 relative" ref={pickerRef}>
+              <AnimatePresence>
+                {showEmojiPicker && (
+                  <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute bottom-[60px] left-14 z-[60]">
+                    <EmojiPicker theme={Theme.DARK} onEmojiClick={(emojiData) => setNewMessage(prev => prev + emojiData.emoji)} />
+                  </motion.div>
+                )}
+                {showStickerPicker && (
+                  <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute bottom-[60px] right-14 w-72 bg-[#1a1a1a] border border-[#d4af37]/30 rounded-2xl p-4 shadow-2xl z-[60] flex flex-col max-h-[300px]">
+                    <div className="flex justify-between items-center mb-3">
+                      <h3 className="text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm">Stickers</h3>
+                      <button type="button" onClick={() => stickerInputRef.current?.click()} className="text-xs bg-[#d4af37]/20 text-[#d4af37] px-2 py-1 rounded hover:bg-[#d4af37]/30 transition-colors">
+                        {isUploadingSticker ? "Uploading..." : "+ Add"}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 overflow-y-auto min-h-0 flex-1 pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d4af37 transparent' }}>
+                      {customStickers.length === 0 && !isUploadingSticker && (
+                        <div className="col-span-3 text-center text-[#8a7a6a] text-xs py-4">No stickers yet. Add one!</div>
+                      )}
+                      {customStickers.map((sticker) => (
+                        <div key={sticker.id} className="relative group aspect-square rounded-lg overflow-hidden bg-black/40 border border-white/5">
+                          <button type="button" onClick={() => {
+                            const payload = { sender: username, createdAt: serverTimestamp(), attachmentUrl: sticker.url, attachmentType: 'sticker' };
+                            addDoc(collection(db, "messages"), payload);
+                            setShowStickerPicker(false);
+                            virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
+                          }} className="w-full h-full hover:scale-105 transition-transform">
+                            <img src={sticker.url} alt="sticker" className="w-full h-full object-cover" />
+                          </button>
+                          {sticker.uploadedBy === username && (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteSticker(sticker.id); }} className="absolute top-1 right-1 w-6 h-6 bg-black/70 rounded-full text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-red-500/30">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <input type="file" accept="image/jpeg, image/png, image/gif, image/webp" ref={stickerInputRef} className="hidden" onChange={handleStickerUpload} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -1253,11 +1398,33 @@ export default function ChatPage() {
                 </svg>
               </motion.button>
 
-              <motion.input layoutId="recording-box" whileFocus={{ scale: 1.01, boxShadow: "0 0 0 2px rgba(212,175,55,0.3)" }} type="text" value={newMessage}
-                onChange={(e) => handleTyping(e.target.value)}
-                placeholder="Whisper something..."
-                className="flex-1 min-w-0 bg-black/60 border border-[#d4af37]/30 rounded-full px-6 text-base text-[#f5edd6] focus:outline-none focus:border-[#d4af37]/60 shadow-inner"
-              />
+              <div className="flex-1 relative flex items-center min-w-0">
+                  <button onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowStickerPicker(false); }} type="button" className="absolute left-4 text-[#8a7a6a] hover:text-[#d4af37] transition-colors z-10" title="Emoji">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                      <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                      <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                    </svg>
+                  </button>
+
+                  <motion.input layoutId="recording-box" whileFocus={{ scale: 1.01, boxShadow: "0 0 0 2px rgba(212,175,55,0.3)" }} type="text" value={newMessage}
+                    onChange={(e) => handleTyping(e.target.value)}
+                    placeholder="Whisper something..."
+                    className="w-full bg-black/60 border border-[#d4af37]/30 rounded-full pl-12 pr-12 py-[11px] text-base text-[#f5edd6] focus:outline-none focus:border-[#d4af37]/60 shadow-inner"
+                  />
+
+                  <button onClick={() => { setShowStickerPicker(!showStickerPicker); setShowEmojiPicker(false); }} type="button" className="absolute right-4 text-[#8a7a6a] hover:text-[#d4af37] transition-colors z-10" title="Stickers">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15.5 3H8.5C5.462 3 3 5.462 3 8.5v7C3 18.538 5.462 21 8.5 21h7c3.038 0 5.5-2.462 5.5-5.5v-7C21 5.462 18.538 3 15.5 3z" />
+                      <path d="M15 21l6-6" />
+                      <path d="M15 21v-4.5C15 15.672 15.672 15 16.5 15H21" />
+                      <circle cx="9" cy="10" r="1.5" fill="currentColor" stroke="none" />
+                      <circle cx="15" cy="10" r="1.5" fill="currentColor" stroke="none" />
+                      <path d="M9.5 14c1 1.5 3 1.5 4 0" />
+                    </svg>
+                  </button>
+                </div>
               
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                 type="submit"
