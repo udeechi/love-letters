@@ -540,8 +540,8 @@ export default function ChatPage() {
   };
 
   const uploadToCloudinary = async (file: File) => {
-    if (file.size > 25 * 1024 * 1024) {
-      alert("File size exceeds 25MB limit.");
+    if (file.size > 250 * 1024 * 1024) {
+      alert("File size exceeds 250MB limit.");
       return null;
     }
     
