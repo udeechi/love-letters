@@ -101,6 +101,16 @@ export default function Book() {
     setFoldDirection("prev");
   }, [isFolding, phase, isMobile, handleMobilePrev]);
 
+  const handleJumpToPage = useCallback((pageIndex: number) => {
+    if (pageIndex < 0 || pageIndex >= pages.length) return;
+    if (isMobile) {
+      setMobilePageIndex(pageIndex);
+    } else {
+      const targetSpread = Math.floor(pageIndex / 2);
+      setCurrentSpread(targetSpread);
+    }
+  }, [isMobile, pages.length, setCurrentSpread]);
+
   const handleFoldComplete = useCallback(() => {
     if (foldDirection === "next") nextSpread();
     else if (foldDirection === "prev") prevSpread();
@@ -604,6 +614,7 @@ export default function Book() {
                 totalPagesShowing={isMobile ? 1 : (rightPage ? 2 : 1)}
                 onPrev={handlePrev}
                 onNext={handleNext}
+                  onJumpToPage={handleJumpToPage}
                 onAddPage={createPage}
                 onDeletePage={handlePromptDelete}
                 isEditing={isEditing}

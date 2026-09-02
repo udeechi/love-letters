@@ -25,7 +25,10 @@ interface Message {
   attachmentType?: "image" | "video" | "audio" | "sticker";
   isEdited?: boolean;
   replyToId?: string;
+  reactions?: Record<string, string>;
 }
+
+const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👏", "🔥"];
 
 const VoiceMessagePlayer = ({ src, isMe }: { src: string; isMe: boolean }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -208,6 +211,64 @@ export default function ChatPage() {
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const hasLongPressed = useRef(false);
 
+  // Instagram-style 2-second hold reaction states
+  const [reactionMenuMessageId, setReactionMenuMessageId] = useState<string | null>(null);
+  const [customReactionMsg, setCustomReactionMsg] = useState<Message | null>(null);
+  const [reactionDetailsMsgId, setReactionDetailsMsgId] = useState<string | null>(null);
+
+  const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pressStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const didTrigger2sHoldRef = useRef(false);
+
+  const handlePressStart = (msgId: string, clientX: number, clientY: number) => {
+    didTrigger2sHoldRef.current = false;
+    pressStartPosRef.current = { x: clientX, y: clientY };
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = setTimeout(() => {
+      didTrigger2sHoldRef.current = true;
+      setReactionMenuMessageId(msgId);
+      setActiveMessageId(null);
+      if (typeof window !== "undefined" && window.navigator && "vibrate" in window.navigator) {
+        window.navigator.vibrate(50);
+      }
+    }, 500); // 500ms hold
+  };
+
+  const handlePressMove = (clientX: number, clientY: number) => {
+    if (!pressStartPosRef.current || !pressTimerRef.current) return;
+    const dx = Math.abs(clientX - pressStartPosRef.current.x);
+    const dy = Math.abs(clientY - pressStartPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  };
+
+  const handlePressEnd = () => {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  };
+
+  const handleToggleReaction = async (message: Message, emoji: string) => {
+    if (!username) return;
+    try {
+      const currentReaction = message.reactions?.[username];
+      const newReactions = { ...(message.reactions || {}) };
+      if (currentReaction === emoji) {
+        delete newReactions[username];
+      } else {
+        newReactions[username] = emoji;
+      }
+      await updateDoc(doc(db, "messages", message.id), {
+        reactions: newReactions,
+      });
+    } catch (error) {
+      console.error("Failed to toggle reaction:", error);
+    }
+  };
+
   const startLongPress = (id: string) => {
     hasLongPressed.current = false;
     longPressTimer.current = setTimeout(() => {
@@ -233,6 +294,10 @@ export default function ChatPage() {
   };
 
   const handleImageClick = (e: React.MouseEvent, url: string) => {
+    if (didTrigger2sHoldRef.current) {
+      didTrigger2sHoldRef.current = false;
+      return;
+    }
     if (hasLongPressed.current) {
       hasLongPressed.current = false;
       return;
@@ -254,12 +319,17 @@ export default function ChatPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Close pickers on outside click
+  // Close pickers and reaction menu on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
         setShowEmojiPicker(false);
         setShowStickerPicker(false);
+      }
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('.reaction-interactive')) {
+        setReactionMenuMessageId(null);
+        setReactionDetailsMsgId(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1151,117 +1221,292 @@ export default function ChatPage() {
                     );
                   })()}
                   
-                  {/* Media Attachment - Rendered OUTSIDE the text bubble */}
-                  {msg.attachmentUrl && (
-                    <div 
-                      className={`mb-2 max-w-[85%] sm:max-w-[70%] rounded-2xl overflow-hidden shadow-lg ${isMe ? 'shadow-[#d4af37]/5' : 'shadow-black/50'} cursor-pointer hover:ring-1 ring-white/10`}
-                      onClick={() => {
-                        if (msg.attachmentType !== 'image') {
-                          setActiveMessageId(isActive ? null : msg.id);
-                        }
-                      }}
-                    >
-                      {msg.attachmentType === "video" ? (
-                        <video 
-                          src={msg.attachmentUrl} 
-                          controls 
-                          className="w-full h-auto max-h-[300px] object-cover"
-                        />
-                      ) : msg.attachmentType === "audio" ? (
-                        <VoiceMessagePlayer src={msg.attachmentUrl} isMe={isMe} />
-                      ) : msg.attachmentType === "sticker" ? (
-                        <div className="w-40 h-40 overflow-hidden flex items-center justify-center p-1 bg-transparent">
-                          <img 
-                            src={msg.attachmentUrl} 
-                            alt="Sticker" 
-                            className="w-full h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
-                            loading="lazy"
-                          />
-                        </div>
-                      ) : (
-                        <div 
-                          className="relative group cursor-pointer" 
-                          onClick={(e) => handleImageClick(e, msg.attachmentUrl!)}
-                          onTouchStart={() => startLongPress(msg.id)}
-                          onTouchEnd={cancelLongPress}
-                          onTouchMove={cancelLongPress}
-                          onContextMenu={(e) => {
-                            // On mobile some browsers fire context menu on long press, we can just allow our long press to handle it or let default happen.
-                          }}
+                  {/* Message Content Container with Instagram Reaction Support */}
+                  <div className={`relative flex flex-col ${isMe ? "items-end" : "items-start"} max-w-[85%] sm:max-w-[70%]`}>
+                    
+                    {/* Floating Instagram Reaction Bar */}
+                    <AnimatePresence>
+                      {reactionMenuMessageId === msg.id && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.5, y: 12 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.5, y: 8 }}
+                          transition={{ type: "spring", stiffness: 450, damping: 25 }}
+                          className={`reaction-interactive absolute -top-11 ${isMe ? "right-0" : "left-0"} z-40 flex items-center gap-1 sm:gap-1.5 bg-[#181315]/95 border border-[#d4af37]/40 shadow-[0_10px_35px_rgba(0,0,0,0.85)] px-2.5 py-1 rounded-full backdrop-blur-xl select-none`}
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <img 
-                            src={msg.attachmentUrl} 
-                            alt="Attachment" 
-                            className="w-full h-auto max-h-[300px] object-cover hover:opacity-90 transition-opacity"
-                            loading="lazy"
-                          />
-                          {isMe && (
-                            <div 
-                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveMessageId(isActive ? null : msg.id);
-                              }}
-                            >
-                              <div className="bg-black/60 rounded-full p-1.5 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors shadow-lg">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Text Message - Rendered INSIDE the text bubble */}
-                  {msg.text && (
-                    <div
-                      className={`px-5 py-3 rounded-2xl max-w-[85%] sm:max-w-[70%] font-[family-name:var(--font-lora)] text-base shadow-lg transition-all ${
-                        isMe
-                          ? "bg-[#d4af37]/25 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/40 shadow-[#d4af37]/5 cursor-pointer hover:bg-[#d4af37]/30"
-                          : "bg-black/80 text-[#f5edd6] rounded-bl-sm border border-white/10 shadow-black/50 cursor-pointer hover:bg-black/70"
-                      }`}
-                      style={{ wordBreak: "break-word" }}
-                      onClick={() => !isEditing && setActiveMessageId(isActive ? null : msg.id)}
-                    >
-                      {isEditing ? (
-                        <div className="flex flex-col gap-2 min-w-[200px]" onClick={e => e.stopPropagation()}>
-                          <textarea
-                            value={editMessageText}
-                            onChange={(e) => setEditMessageText(e.target.value)}
-                            className="w-full bg-black/40 border border-[#d4af37]/40 rounded-lg p-2 text-sm text-[#f5edd6] focus:outline-none focus:border-[#d4af37] resize-none"
-                            rows={3}
-                            autoFocus
-                          />
-                          <div className="flex justify-end gap-2 mt-1">
-                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleCancelEdit} className="px-3 py-1 text-xs text-[#8a7a6a] hover:text-white transition-colors">Cancel</motion.button>
-                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleSaveEdit(msg.id)} disabled={!editMessageText.trim()} className="px-3 py-1 text-xs bg-[#d4af37]/30 text-[#d4af37] border border-[#d4af37]/40 rounded-md hover:bg-[#d4af37]/50 transition-colors disabled:opacity-50">Save</motion.button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          {(() => {
-                            if (!msg.text) return null;
-                            const { cleanText, linkIds } = parseIgLinks(msg.text);
-                            
+                          {QUICK_REACTIONS.map((emoji) => {
+                            const isSelected = msg.reactions?.[username] === emoji;
                             return (
-                              <div className="flex flex-col gap-1 w-full">
-                                {cleanText && (
-                                  <div className="break-words">
-                                    {cleanText}
-                                    {msg.isEdited && <span className="text-[10px] opacity-40 ml-2 italic font-sans">(edited)</span>}
-                                  </div>
-                                )}
-                                {linkIds.map((id, i) => (
-                                  <IgEmbed key={i} reelId={id} msgId={msg.id} setActiveMessageId={setActiveMessageId} />
-                                ))}
-                              </div>
+                              <motion.button
+                                key={emoji}
+                                whileHover={{ scale: 1.35, y: -4 }}
+                                whileTap={{ scale: 0.85 }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleReaction(msg, emoji);
+                                  setReactionMenuMessageId(null);
+                                }}
+                                className={`text-xl sm:text-2xl p-1 rounded-full transition-all relative ${
+                                  isSelected ? "bg-[#d4af37]/25 ring-1 ring-[#d4af37]/50 scale-110" : "hover:bg-white/10"
+                                }`}
+                                title={emoji}
+                              >
+                                {emoji}
+                              </motion.button>
                             );
-                          })()}
-                        </>
+                          })}
+                          
+                          {/* Plus (+) button to open custom emoji picker */}
+                          <motion.button
+                            whileHover={{ scale: 1.25, y: -2 }}
+                            whileTap={{ scale: 0.85 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCustomReactionMsg(msg);
+                              setReactionMenuMessageId(null);
+                            }}
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/10 hover:bg-[#d4af37]/30 text-white/80 hover:text-[#d4af37] flex items-center justify-center transition-all ml-0.5"
+                            title="Custom reaction"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="12" y1="5" x2="12" y2="19"></line>
+                              <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                          </motion.button>
+                        </motion.div>
                       )}
-                    </div>
-                  )}
+                    </AnimatePresence>
+
+                    {/* Media Attachment - Rendered OUTSIDE the text bubble */}
+                    {msg.attachmentUrl && (
+                      <div 
+                        className={`mb-2 w-full rounded-2xl overflow-hidden shadow-lg ${isMe ? 'shadow-[#d4af37]/5' : 'shadow-black/50'} cursor-pointer hover:ring-1 ring-white/10 relative select-none`}
+                        style={{ userSelect: "none", WebkitUserSelect: "none" }}
+                        onPointerDown={(e) => {
+                          handlePressStart(msg.id, e.clientX, e.clientY);
+                        }}
+                        onPointerMove={(e) => {
+                          handlePressMove(e.clientX, e.clientY);
+                        }}
+                        onPointerUp={handlePressEnd}
+                        onPointerCancel={handlePressEnd}
+                        onContextMenu={(e) => {
+                          if (didTrigger2sHoldRef.current) e.preventDefault();
+                        }}
+                        onClick={(e) => {
+                          if (didTrigger2sHoldRef.current) {
+                            didTrigger2sHoldRef.current = false;
+                            e.stopPropagation();
+                            return;
+                          }
+                          if (msg.attachmentType !== 'image') {
+                            setActiveMessageId(isActive ? null : msg.id);
+                          }
+                        }}
+                      >
+                        {msg.attachmentType === "video" ? (
+                          <video 
+                            src={msg.attachmentUrl} 
+                            controls 
+                            className="w-full h-auto max-h-[300px] object-cover"
+                          />
+                        ) : msg.attachmentType === "audio" ? (
+                          <VoiceMessagePlayer src={msg.attachmentUrl} isMe={isMe} />
+                        ) : msg.attachmentType === "sticker" ? (
+                          <div className="w-40 h-40 overflow-hidden flex items-center justify-center p-1 bg-transparent">
+                            <img 
+                              src={msg.attachmentUrl} 
+                              alt="Sticker" 
+                              className="w-full h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
+                              loading="lazy"
+                            />
+                          </div>
+                        ) : (
+                          <div 
+                            className="relative group cursor-pointer" 
+                            onClick={(e) => handleImageClick(e, msg.attachmentUrl!)}
+                            onTouchStart={() => startLongPress(msg.id)}
+                            onTouchEnd={cancelLongPress}
+                            onTouchMove={cancelLongPress}
+                          >
+                            <img 
+                              src={msg.attachmentUrl} 
+                              alt="Attachment" 
+                              className="w-full h-auto max-h-[300px] object-cover hover:opacity-90 transition-opacity"
+                              loading="lazy"
+                            />
+                            {isMe && (
+                              <div 
+                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveMessageId(isActive ? null : msg.id);
+                                }}
+                              >
+                                <div className="bg-black/60 rounded-full p-1.5 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors shadow-lg">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Text Message - Rendered INSIDE the text bubble */}
+                    {msg.text && (
+                      <div
+                        className={`px-5 py-3 rounded-2xl w-full font-[family-name:var(--font-lora)] text-base shadow-lg transition-all select-none relative ${
+                          isMe
+                            ? "bg-[#d4af37]/25 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/40 shadow-[#d4af37]/5 cursor-pointer hover:bg-[#d4af37]/30"
+                            : "bg-black/80 text-[#f5edd6] rounded-bl-sm border border-white/10 shadow-black/50 cursor-pointer hover:bg-black/70"
+                        }`}
+                        style={{ wordBreak: "break-word", userSelect: "none", WebkitUserSelect: "none" }}
+                        onPointerDown={(e) => {
+                          if (isEditing) return;
+                          handlePressStart(msg.id, e.clientX, e.clientY);
+                        }}
+                        onPointerMove={(e) => {
+                          handlePressMove(e.clientX, e.clientY);
+                        }}
+                        onPointerUp={handlePressEnd}
+                        onPointerCancel={handlePressEnd}
+                        onContextMenu={(e) => {
+                          if (didTrigger2sHoldRef.current) {
+                            e.preventDefault();
+                          }
+                        }}
+                        onClick={(e) => {
+                          if (didTrigger2sHoldRef.current) {
+                            didTrigger2sHoldRef.current = false;
+                            e.stopPropagation();
+                            return;
+                          }
+                          if (!isEditing) {
+                            setReactionMenuMessageId(null);
+                            setActiveMessageId(isActive ? null : msg.id);
+                          }
+                        }}
+                      >
+                        {isEditing ? (
+                          <div className="flex flex-col gap-2 min-w-[200px]" onClick={e => e.stopPropagation()}>
+                            <textarea
+                              value={editMessageText}
+                              onChange={(e) => setEditMessageText(e.target.value)}
+                              className="w-full bg-black/40 border border-[#d4af37]/40 rounded-lg p-2 text-sm text-[#f5edd6] focus:outline-none focus:border-[#d4af37] resize-none"
+                              rows={3}
+                              autoFocus
+                            />
+                            <div className="flex justify-end gap-2 mt-1">
+                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleCancelEdit} className="px-3 py-1 text-xs text-[#8a7a6a] hover:text-white transition-colors">Cancel</motion.button>
+                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleSaveEdit(msg.id)} disabled={!editMessageText.trim()} className="px-3 py-1 text-xs bg-[#d4af37]/30 text-[#d4af37] border border-[#d4af37]/40 rounded-md hover:bg-[#d4af37]/50 transition-colors disabled:opacity-50">Save</motion.button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {(() => {
+                              if (!msg.text) return null;
+                              const { cleanText, linkIds } = parseIgLinks(msg.text);
+                              
+                              return (
+                                <div className="flex flex-col gap-1 w-full">
+                                  {cleanText && (
+                                    <div className="break-words">
+                                      {cleanText}
+                                      {msg.isEdited && <span className="text-[10px] opacity-40 ml-2 italic font-sans">(edited)</span>}
+                                    </div>
+                                  )}
+                                  {linkIds.map((id, i) => (
+                                    <IgEmbed key={i} reelId={id} msgId={msg.id} setActiveMessageId={setActiveMessageId} />
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Instagram Reactions Badge */}
+                    {msg.reactions && Object.keys(msg.reactions).length > 0 && (() => {
+                      const reactionMap: Record<string, string[]> = {};
+                      for (const [user, emoji] of Object.entries(msg.reactions)) {
+                        if (!reactionMap[emoji]) reactionMap[emoji] = [];
+                        reactionMap[emoji].push(user);
+                      }
+                      const entries = Object.entries(reactionMap);
+                      const myReaction = msg.reactions[username];
+                      const totalCount = Object.keys(msg.reactions).length;
+
+                      return (
+                        <div className={`reaction-interactive relative ${isMe ? "self-end mr-1" : "self-start ml-1"} -mt-2.5 z-10`}>
+                          <motion.button
+                            whileHover={{ scale: 1.08 }}
+                            whileTap={{ scale: 0.94 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReactionDetailsMsgId(reactionDetailsMsgId === msg.id ? null : msg.id);
+                            }}
+                            className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs shadow-md backdrop-blur-md transition-all select-none border ${
+                              myReaction
+                                ? "bg-[#2d1b24]/95 border-[#d4af37]/60 text-[#f5edd6] shadow-[#d4af37]/10 ring-1 ring-[#d4af37]/20"
+                                : "bg-[#141213]/90 border-white/15 text-white/80 hover:border-white/30"
+                            }`}
+                            title={entries.map(([emoji, users]) => `${emoji} ${users.join(", ")}`).join("\n")}
+                          >
+                            <div className="flex items-center -space-x-0.5">
+                              {entries.slice(0, 3).map(([emoji]) => (
+                                <span key={emoji} className="text-sm leading-none drop-shadow-sm">{emoji}</span>
+                              ))}
+                            </div>
+                            {totalCount > 1 && (
+                              <span className="text-[11px] font-semibold text-[#d4af37] font-mono leading-none">
+                                {totalCount}
+                              </span>
+                            )}
+                          </motion.button>
+
+                          {/* Reaction Details Popover */}
+                          <AnimatePresence>
+                            {reactionDetailsMsgId === msg.id && (
+                              <motion.div
+                                initial={{ opacity: 0, scale: 0.85, y: 4 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.85, y: 4 }}
+                                className={`absolute bottom-full mb-2 ${isMe ? "right-0" : "left-0"} z-30 flex flex-col gap-1.5 bg-[#1c1518]/95 border border-[#d4af37]/40 p-2.5 rounded-xl shadow-2xl backdrop-blur-xl min-w-[140px] text-xs`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="text-[10px] text-[#8a7a6a] uppercase tracking-wider font-semibold font-[family-name:var(--font-playfair)] border-b border-white/10 pb-1">
+                                  Reactions
+                                </div>
+                                {Object.entries(msg.reactions).map(([u, emo]) => (
+                                  <div key={u} className="flex items-center justify-between gap-3 text-white/90">
+                                    <span className="truncate max-w-[90px] font-sans">
+                                      {u === username ? <span className="text-[#d4af37] font-bold">You</span> : u}
+                                    </span>
+                                    <span className="text-base">{emo}</span>
+                                  </div>
+                                ))}
+                                {myReaction && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleReaction(msg, myReaction);
+                                      setReactionDetailsMsgId(null);
+                                    }}
+                                    className="mt-1 text-[11px] text-red-400 hover:text-red-300 transition-colors text-left font-sans flex items-center gap-1 border-t border-white/10 pt-1"
+                                  >
+                                    <span>✕ Remove reaction</span>
+                                  </button>
+                                )}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })()}
+                  </div>
 
                   {/* Action Menu */}
                   <AnimatePresence>
@@ -1521,6 +1766,53 @@ export default function ChatPage() {
               className="max-w-full max-h-full object-contain rounded-sm shadow-2xl"
               onClick={(e: React.MouseEvent) => e.stopPropagation()} 
             />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom Emoji Reaction Modal (Pick ANY Emoji) */}
+      <AnimatePresence>
+        {customReactionMsg && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setCustomReactionMsg(null)}
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 15 }}
+              transition={{ type: "spring", damping: 25, stiffness: 350 }}
+              className="bg-[#181315] border border-[#d4af37]/40 rounded-2xl shadow-2xl p-4 max-w-sm w-full flex flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-full flex items-center justify-between pb-3 mb-3 border-b border-white/10 px-1">
+                <span className="text-xs font-[family-name:var(--font-playfair)] tracking-widest text-[#d4af37] uppercase font-bold">
+                  React to Message
+                </span>
+                <button
+                  onClick={() => setCustomReactionMsg(null)}
+                  className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white flex items-center justify-center text-xs transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="w-full flex justify-center overflow-hidden rounded-xl">
+                <EmojiPicker
+                  theme={Theme.DARK}
+                  lazyLoadEmojis={true}
+                  searchPlaceHolder="Search any emoji..."
+                  width="100%"
+                  height={380}
+                  onEmojiClick={(emojiData) => {
+                    handleToggleReaction(customReactionMsg, emojiData.emoji);
+                    setCustomReactionMsg(null);
+                  }}
+                />
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

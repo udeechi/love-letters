@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { useState } from "react";
 
 interface PageControlsProps {
   currentSpread: number;
@@ -10,6 +11,7 @@ interface PageControlsProps {
   totalPagesShowing: number;
   onPrev: () => void;
   onNext: () => void;
+  onJumpToPage: (page: number) => void;
   onAddPage: () => void;
   onDeletePage: () => void;
   isEditing: boolean;
@@ -25,6 +27,7 @@ export default function PageControls({
   totalPagesShowing,
   onPrev,
   onNext,
+  onJumpToPage,
   onAddPage,
   onDeletePage,
   isEditing,
@@ -37,6 +40,23 @@ export default function PageControls({
   const pageNum = currentPage;
   const hasSecond = !isMobile && totalPagesShowing === 2;
   const pageNum2 = pageNum + 1;
+
+  const [isJumping, setIsJumping] = useState(false);
+  const [jumpValue, setJumpValue] = useState("");
+
+  const handleJumpSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsJumping(false);
+    const p = parseInt(jumpValue, 10);
+    if (!isNaN(p) && p >= 0 && p < totalPages) {
+      onJumpToPage(p);
+    }
+  };
+
+  const startJump = () => {
+    setJumpValue(String(pageNum));
+    setIsJumping(true);
+  };
 
   if (isMobile) {
     return (
@@ -58,7 +78,31 @@ export default function PageControls({
         </button>
 
         <div className="flex items-center gap-1.5 text-sm font-[family-name:var(--font-playfair)] text-[#d4af37] min-w-[52px] justify-center select-none">
-          <span>{pageNum}</span>
+          {isJumping ? (
+            <form onSubmit={handleJumpSubmit} className="flex items-center">
+              <input
+                type="number"
+                autoFocus
+                min={0}
+                max={totalPages - 1}
+                value={jumpValue}
+                onChange={(e) => setJumpValue(e.target.value)}
+                onBlur={() => {
+                  // small timeout so click submit doesn't get preempted by blur
+                  setTimeout(() => setIsJumping(false), 150);
+                }}
+                className="w-8 bg-transparent text-center border-b border-[#d4af37]/50 focus:outline-none text-[#d4af37] hide-arrows"
+              />
+            </form>
+          ) : (
+            <span 
+              className="cursor-pointer hover:text-[#d4af37]/80 hover:underline transition-all"
+              onClick={startJump}
+              title="Jump to page"
+            >
+              {pageNum}
+            </span>
+          )}
           <span className="text-[#d4af37]/40">/ {totalPages - 1}</span>
         </div>
 
@@ -116,7 +160,29 @@ export default function PageControls({
       </button>
 
       <div className="flex items-center gap-1.5 text-xs font-[family-name:var(--font-playfair)] text-[#d4af37]/70">
-        <span>{pageNum}</span>
+        {isJumping ? (
+          <form onSubmit={handleJumpSubmit} className="flex items-center">
+            <input
+              type="number"
+              autoFocus
+              min={0}
+              max={totalPages - 1}
+              value={jumpValue}
+              onChange={(e) => setJumpValue(e.target.value)}
+              onBlur={() => setTimeout(() => setIsJumping(false), 150)}
+              className="w-6 bg-transparent text-center border-b border-[#d4af37]/50 focus:outline-none text-[#d4af37] hide-arrows"
+            />
+          </form>
+        ) : (
+          <span 
+            className="cursor-pointer hover:text-[#d4af37] hover:underline transition-all"
+            onClick={startJump}
+            title="Jump to page"
+          >
+            {pageNum}
+          </span>
+        )}
+        
         {hasSecond && (
           <>
             <span className="text-[#d4af37]/30">—</span>
