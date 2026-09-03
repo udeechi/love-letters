@@ -682,6 +682,7 @@ export default function ChatPage() {
   };
 
   const handleDeleteSticker = async (stickerId: string) => {
+    if (!window.confirm("Are you sure you want to delete this sticker?")) return;
     try {
       await deleteDoc(doc(db, "stickers", stickerId));
     } catch(error) {
@@ -1281,7 +1282,11 @@ export default function ChatPage() {
                     {/* Media Attachment - Rendered OUTSIDE the text bubble */}
                     {msg.attachmentUrl && (
                       <div 
-                        className={`mb-2 w-full rounded-2xl overflow-hidden shadow-lg ${isMe ? 'shadow-[#d4af37]/5' : 'shadow-black/50'} cursor-pointer hover:ring-1 ring-white/10 relative select-none`}
+                        className={`mb-2 w-full relative select-none ${
+                          msg.attachmentType === 'sticker' 
+                            ? '' 
+                            : `rounded-2xl overflow-hidden shadow-lg ${isMe ? 'shadow-[#d4af37]/5' : 'shadow-black/50'} cursor-pointer hover:ring-1 ring-white/10`
+                        }`}
                         style={{ userSelect: "none", WebkitUserSelect: "none" }}
                         onPointerDown={(e) => {
                           handlePressStart(msg.id, e.clientX, e.clientY);
@@ -1318,7 +1323,7 @@ export default function ChatPage() {
                             <img 
                               src={msg.attachmentUrl} 
                               alt="Sticker" 
-                              className="w-full h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
+                              className="w-full h-full object-contain"
                               loading="lazy"
                             />
                           </div>
@@ -1638,34 +1643,36 @@ export default function ChatPage() {
                   </motion.div>
                 )}
                 {showStickerPicker && (
-                  <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute bottom-[60px] right-14 w-72 bg-[#1a1a1a] border border-[#d4af37]/30 rounded-2xl p-4 shadow-2xl z-[60] flex flex-col max-h-[300px]">
+                  <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute bottom-[60px] right-14 w-80 bg-[#1a1a1a] border border-[#d4af37]/30 rounded-2xl p-4 shadow-2xl z-[60] flex flex-col max-h-[400px]">
                     <div className="flex justify-between items-center mb-3">
                       <h3 className="text-[#d4af37] font-[family-name:var(--font-playfair)] text-sm">Stickers</h3>
                       <button type="button" onClick={() => stickerInputRef.current?.click()} className="text-xs bg-[#d4af37]/20 text-[#d4af37] px-2 py-1 rounded hover:bg-[#d4af37]/30 transition-colors">
                         {isUploadingSticker ? "Uploading..." : "+ Add"}
                       </button>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 overflow-y-auto min-h-0 flex-1 pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d4af37 transparent' }}>
-                      {customStickers.length === 0 && !isUploadingSticker && (
-                        <div className="col-span-3 text-center text-[#8a7a6a] text-xs py-4">No stickers yet. Add one!</div>
-                      )}
-                      {customStickers.map((sticker) => (
-                        <div key={sticker.id} className="relative group aspect-square rounded-lg overflow-hidden bg-black/40 border border-white/5">
-                          <button type="button" onClick={() => {
-                            const payload = { sender: username, createdAt: serverTimestamp(), attachmentUrl: sticker.url, attachmentType: 'sticker' };
-                            addDoc(collection(db, "messages"), payload);
-                            setShowStickerPicker(false);
-                            virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
-                          }} className="w-full h-full hover:scale-105 transition-transform">
-                            <img src={sticker.url} alt="sticker" className="w-full h-full object-cover" />
-                          </button>
-                          {sticker.uploadedBy === username && (
-                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteSticker(sticker.id); }} className="absolute top-1 right-1 w-6 h-6 bg-black/70 rounded-full text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-red-500/30">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d4af37 transparent' }}>
+                      <div className="grid grid-cols-3 gap-3 auto-rows-max">
+                        {customStickers.length === 0 && !isUploadingSticker && (
+                          <div className="col-span-3 text-center text-[#8a7a6a] text-xs py-4">No stickers yet. Add one!</div>
+                        )}
+                        {customStickers.map((sticker) => (
+                          <div key={sticker.id} className="relative group w-full pt-[100%] rounded-lg overflow-hidden bg-black/40 border border-white/5">
+                            <button type="button" onClick={() => {
+                              const payload = { sender: username, createdAt: serverTimestamp(), attachmentUrl: sticker.url, attachmentType: 'sticker' };
+                              addDoc(collection(db, "messages"), payload);
+                              setShowStickerPicker(false);
+                              virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
+                            }} className="absolute inset-0 w-full h-full hover:scale-105 transition-transform flex">
+                              <img src={sticker.url} alt="sticker" className="w-full h-full object-cover block" />
                             </button>
-                          )}
-                        </div>
-                      ))}
+                            {(sticker.uploadedBy === username || username === 'firebase') && (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteSticker(sticker.id); }} className="absolute top-1 right-1 w-6 h-6 bg-black/70 rounded-full text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-red-500/30">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     <input type="file" accept="image/jpeg, image/png, image/gif, image/webp" ref={stickerInputRef} className="hidden" onChange={handleStickerUpload} />
                   </motion.div>

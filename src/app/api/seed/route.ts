@@ -25,7 +25,14 @@ export async function POST() {
       });
     }
 
-    const passwordHash = await hashPassword("iloveu");
+    const seedPassword = process.env.SEED_PASSWORD;
+    if (!seedPassword) {
+      return NextResponse.json(
+        { error: "SEED_PASSWORD environment variable is not set" },
+        { status: 500 }
+      );
+    }
+    const passwordHash = await hashPassword(seedPassword);
 
     const { data: notebook, error: notebookError } = await supabaseAdmin
       .from("notebooks")
