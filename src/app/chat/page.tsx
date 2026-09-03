@@ -718,6 +718,44 @@ export default function ChatPage() {
     }
   };
 
+  const handlePaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    
+    for (const item of Array.from(items)) {
+      if (item.type.indexOf('image') === 0 || item.type.indexOf('video') === 0) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          setIsUploadingFile(true);
+          try {
+            const uploadData = await uploadToCloudinary(file);
+            if (uploadData) {
+              const isVideo = uploadData.resource_type === "video";
+              const payload: any = {
+                text: "", 
+                attachmentUrl: uploadData.secure_url,
+                attachmentType: isVideo ? "video" : "image",
+                sender: username,
+                createdAt: serverTimestamp(),
+              };
+              if (replyingTo) payload.replyToId = replyingTo.id;
+              await addDoc(collection(db, "messages"), payload);
+              setReplyingTo(null);
+            }
+          } catch (error) {
+            console.error("Paste upload error:", error);
+            alert("Failed to upload pasted file.");
+          } finally {
+            setIsUploadingFile(false);
+          }
+          break;
+        }
+      }
+    }
+  };
+
+
   // ----- Audio Recording Methods -----
   
   const getSupportedMimeType = () => {
@@ -1722,6 +1760,7 @@ export default function ChatPage() {
 
                   <motion.input layoutId="recording-box" whileFocus={{ scale: 1.01, boxShadow: "0 0 0 2px rgba(212,175,55,0.3)" }} type="text" value={newMessage}
                     onChange={(e) => handleTyping(e.target.value)}
+                    onPaste={handlePaste}
                     placeholder="Whisper something..."
                     className="w-full bg-black/60 border border-[#d4af37]/30 rounded-full pl-12 pr-12 py-[11px] text-base text-[#f5edd6] focus:outline-none focus:border-[#d4af37]/60 shadow-inner"
                   />
