@@ -1360,78 +1360,83 @@ export default function ChatPage() {
                     )}
 
                     {/* Text Message - Rendered INSIDE the text bubble */}
-                    {msg.text && (
-                      <div
-                        className={`px-5 py-3 rounded-2xl w-full font-[family-name:var(--font-lora)] text-base shadow-lg transition-all select-none relative ${
-                          isMe
-                            ? "bg-[#d4af37]/25 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/40 shadow-[#d4af37]/5 cursor-pointer hover:bg-[#d4af37]/30"
-                            : "bg-black/80 text-[#f5edd6] rounded-bl-sm border border-white/10 shadow-black/50 cursor-pointer hover:bg-black/70"
-                        }`}
-                        style={{ wordBreak: "break-word", userSelect: "none", WebkitUserSelect: "none" }}
-                        onPointerDown={(e) => {
-                          if (isEditing) return;
-                          handlePressStart(msg.id, e.clientX, e.clientY);
-                        }}
-                        onPointerMove={(e) => {
-                          handlePressMove(e.clientX, e.clientY);
-                        }}
-                        onPointerUp={handlePressEnd}
-                        onPointerCancel={handlePressEnd}
-                        onContextMenu={(e) => {
-                          if (didTrigger2sHoldRef.current) {
-                            e.preventDefault();
-                          }
-                        }}
-                        onClick={(e) => {
-                          if (didTrigger2sHoldRef.current) {
-                            didTrigger2sHoldRef.current = false;
-                            e.stopPropagation();
-                            return;
-                          }
-                          if (!isEditing) {
-                            setReactionMenuMessageId(null);
-                            setActiveMessageId(isActive ? null : msg.id);
-                          }
-                        }}
-                      >
-                        {isEditing ? (
-                          <div className="flex flex-col gap-2 min-w-[200px]" onClick={e => e.stopPropagation()}>
-                            <textarea
-                              value={editMessageText}
-                              onChange={(e) => setEditMessageText(e.target.value)}
-                              className="w-full bg-black/40 border border-[#d4af37]/40 rounded-lg p-2 text-sm text-[#f5edd6] focus:outline-none focus:border-[#d4af37] resize-none"
-                              rows={3}
-                              autoFocus
-                            />
-                            <div className="flex justify-end gap-2 mt-1">
-                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleCancelEdit} className="px-3 py-1 text-xs text-[#8a7a6a] hover:text-white transition-colors">Cancel</motion.button>
-                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleSaveEdit(msg.id)} disabled={!editMessageText.trim()} className="px-3 py-1 text-xs bg-[#d4af37]/30 text-[#d4af37] border border-[#d4af37]/40 rounded-md hover:bg-[#d4af37]/50 transition-colors disabled:opacity-50">Save</motion.button>
+                    {msg.text && (() => {
+                      const { cleanText, linkIds } = parseIgLinks(msg.text);
+                      const isEmojiOnly = (() => {
+                        if (!cleanText) return false;
+                        const noWs = cleanText.replace(/\s/g, '');
+                        if (!noWs) return false;
+                        return /^(\p{Emoji_Presentation}|\p{Extended_Pictographic}|\p{Emoji_Modifier_Base}|\p{Emoji_Modifier}|\u200d|\uFE0F|[0-9#*]\uFE0F\u20E3)+$/u.test(noWs);
+                      })();
+
+                      return (
+                        <div
+                          className={`w-full font-[family-name:var(--font-lora)] transition-all select-none relative cursor-pointer ${
+                            isEmojiOnly 
+                              ? "text-5xl leading-tight bg-transparent shadow-none border-none py-1 px-1" 
+                              : `px-5 py-3 rounded-2xl text-base shadow-lg ${
+                                  isMe
+                                    ? "bg-[#d4af37]/25 text-[#f5edd6] rounded-br-sm border border-[#d4af37]/40 shadow-[#d4af37]/5 hover:bg-[#d4af37]/30"
+                                    : "bg-black/80 text-[#f5edd6] rounded-bl-sm border border-white/10 shadow-black/50 hover:bg-black/70"
+                                }`
+                          }`}
+                          style={{ wordBreak: "break-word", userSelect: "none", WebkitUserSelect: "none" }}
+                          onPointerDown={(e) => {
+                            if (isEditing) return;
+                            handlePressStart(msg.id, e.clientX, e.clientY);
+                          }}
+                          onPointerMove={(e) => {
+                            handlePressMove(e.clientX, e.clientY);
+                          }}
+                          onPointerUp={handlePressEnd}
+                          onPointerCancel={handlePressEnd}
+                          onContextMenu={(e) => {
+                            if (didTrigger2sHoldRef.current) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onClick={(e) => {
+                            if (didTrigger2sHoldRef.current) {
+                              didTrigger2sHoldRef.current = false;
+                              e.stopPropagation();
+                              return;
+                            }
+                            if (!isEditing) {
+                              setReactionMenuMessageId(null);
+                              setActiveMessageId(isActive ? null : msg.id);
+                            }
+                          }}
+                        >
+                          {isEditing ? (
+                            <div className="flex flex-col gap-2 min-w-[200px]" onClick={e => e.stopPropagation()}>
+                              <textarea
+                                value={editMessageText}
+                                onChange={(e) => setEditMessageText(e.target.value)}
+                                className="w-full bg-black/40 border border-[#d4af37]/40 rounded-lg p-2 text-sm text-[#f5edd6] focus:outline-none focus:border-[#d4af37] resize-none"
+                                rows={3}
+                                autoFocus
+                              />
+                              <div className="flex justify-end gap-2 mt-1">
+                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleCancelEdit} className="px-3 py-1 text-xs text-[#8a7a6a] hover:text-white transition-colors">Cancel</motion.button>
+                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleSaveEdit(msg.id)} disabled={!editMessageText.trim()} className="px-3 py-1 text-xs bg-[#d4af37]/30 text-[#d4af37] border border-[#d4af37]/40 rounded-md hover:bg-[#d4af37]/50 transition-colors disabled:opacity-50">Save</motion.button>
+                              </div>
                             </div>
-                          </div>
-                        ) : (
-                          <>
-                            {(() => {
-                              if (!msg.text) return null;
-                              const { cleanText, linkIds } = parseIgLinks(msg.text);
-                              
-                              return (
-                                <div className="flex flex-col gap-1 w-full">
-                                  {cleanText && (
-                                    <div className="break-words">
-                                      {cleanText}
-                                      {msg.isEdited && <span className="text-[10px] opacity-40 ml-2 italic font-sans">(edited)</span>}
-                                    </div>
-                                  )}
-                                  {linkIds.map((id, i) => (
-                                    <IgEmbed key={i} reelId={id} msgId={msg.id} setActiveMessageId={setActiveMessageId} />
-                                  ))}
+                          ) : (
+                            <div className="flex flex-col gap-1 w-full">
+                              {cleanText && (
+                                <div className="break-words">
+                                  {cleanText}
+                                  {msg.isEdited && <span className={`italic font-sans ${isEmojiOnly ? 'text-sm opacity-60 ml-2 block text-right' : 'text-[10px] opacity-40 ml-2'}`}>(edited)</span>}
                                 </div>
-                              );
-                            })()}
-                          </>
-                        )}
-                      </div>
-                    )}
+                              )}
+                              {linkIds.map((id, i) => (
+                                <IgEmbed key={i} reelId={id} msgId={msg.id} setActiveMessageId={setActiveMessageId} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Instagram Reactions Badge */}
                     {msg.reactions && Object.keys(msg.reactions).length > 0 && (() => {
