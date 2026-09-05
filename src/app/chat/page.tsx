@@ -243,10 +243,45 @@ export default function ChatPage() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const processedCandidateKeysRef = useRef<Set<string>>(new Set());
+
+  const addOrQueueCandidate = (candidateData: RTCIceCandidateInit, key?: string) => {
+    if (key && processedCandidateKeysRef.current.has(key)) return;
+    if (key) processedCandidateKeysRef.current.add(key);
+
+    const pc = pcRef.current;
+    if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+      pc.addIceCandidate(new RTCIceCandidate(candidateData)).catch((e) => {
+        console.warn("Could not add ICE candidate immediately:", e);
+      });
+    } else {
+      pendingCandidatesRef.current.push(candidateData);
+    }
+  };
+
+  const flushPendingCandidates = async () => {
+    const pc = pcRef.current;
+    if (!pc || !pc.remoteDescription) return;
+    while (pendingCandidatesRef.current.length > 0) {
+      const cand = pendingCandidatesRef.current.shift();
+      if (cand) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn("Error applying buffered ICE candidate:", e);
+        }
+      }
+    }
+  };
+
   const endCallCleanup = useCallback((playEndTone = true) => {
     callSounds.stopAll();
     if (playEndTone) callSounds.playCallEnd();
     setShowIncomingBanner(false);
+
+    pendingCandidatesRef.current = [];
+    processedCandidateKeysRef.current.clear();
 
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
@@ -279,9 +314,19 @@ export default function ChatPage() {
   const handleStartCall = async () => {
     if (!username || callState !== "idle") return;
     try {
+      // Unlock mobile audio on user tap
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.play().catch(() => {});
+      }
+
       callSounds.playRingback();
       setCallState("calling");
       setCallSession({ caller: username, startedAt: Date.now() });
+
+      // Wipe clean old candidates and session
+      pendingCandidatesRef.current = [];
+      processedCandidateKeysRef.current.clear();
+      await remove(ref(rtdb, "call/candidates")).catch(() => {});
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
@@ -304,6 +349,12 @@ export default function ChatPage() {
         }
       };
 
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "failed") {
+          try { pc.restartIce(); } catch {}
+        }
+      };
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -317,13 +368,13 @@ export default function ChatPage() {
       await set(ref(rtdb, "call/session"), callData);
       onDisconnect(ref(rtdb, "call/session")).set({ status: "ended", endedBy: username });
 
-      // Listen for receiver candidates
+      // Listen for receiver candidates with queuing
       const receiverCandidatesRef = ref(rtdb, "call/candidates/receiver");
       const unsubCandidates = onValue(receiverCandidatesRef, (snapshot) => {
         const data = snapshot.val();
-        if (data && pcRef.current) {
-          Object.values(data).forEach((cand: any) => {
-            pcRef.current?.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+        if (data) {
+          Object.entries(data).forEach(([key, cand]: [string, any]) => {
+            addOrQueueCandidate(cand, key);
           });
         }
       });
@@ -339,6 +390,11 @@ export default function ChatPage() {
   const handleAcceptCall = async () => {
     if (!username) return;
     try {
+      // Unlock mobile audio on user tap
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.play().catch(() => {});
+      }
+
       callSounds.stopAll();
       setShowIncomingBanner(false);
       const snap = await get(ref(rtdb, "call/session"));
@@ -348,6 +404,9 @@ export default function ChatPage() {
         endCallCleanup(false);
         return;
       }
+
+      pendingCandidatesRef.current = [];
+      processedCandidateKeysRef.current.clear();
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
@@ -370,7 +429,15 @@ export default function ChatPage() {
         }
       };
 
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "failed") {
+          try { pc.restartIce(); } catch {}
+        }
+      };
+
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      await flushPendingCandidates();
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -381,13 +448,13 @@ export default function ChatPage() {
       });
       onDisconnect(ref(rtdb, "call/session")).set({ status: "ended", endedBy: username });
 
-      // Listen for caller candidates
+      // Listen for caller candidates with queuing
       const callerCandidatesRef = ref(rtdb, "call/candidates/caller");
       const unsubCandidates = onValue(callerCandidatesRef, (snapshot) => {
         const candData = snapshot.val();
-        if (candData && pcRef.current) {
-          Object.values(candData).forEach((cand: any) => {
-            pcRef.current?.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+        if (candData) {
+          Object.entries(candData).forEach(([key, cand]: [string, any]) => {
+            addOrQueueCandidate(cand, key);
           });
         }
       });
@@ -646,6 +713,7 @@ export default function ChatPage() {
           try {
             if (pcRef.current.signalingState === "have-local-offer") {
               await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+              await flushPendingCandidates();
             }
           } catch (e) {
             console.error("Failed to set remote answer:", e);
