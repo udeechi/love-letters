@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import { collection, query, orderBy, onSnapshot, addDoc, limit, serverTimestamp, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
-import { ref, onValue, set, onDisconnect, remove } from "firebase/database";
+import { ref, onValue, set, onDisconnect, remove, push, update, get } from "firebase/database";
 import { signInWithCustomToken, signOut } from "firebase/auth";
 import { db, auth, rtdb } from "@/lib/firebase";
+import { RTC_CONFIG, callSounds } from "@/lib/webrtc";
 import Link from "next/link";
 
 interface CustomSticker {
@@ -203,6 +204,8 @@ export default function ChatPage() {
   
   
   const [globalBackground, setGlobalBackground] = useState<string | null>(null);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
   const [isUploadingGlobal, setIsUploadingGlobal] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -210,6 +213,217 @@ export default function ChatPage() {
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const hasLongPressed = useRef(false);
+
+  // WebRTC Call States & Refs
+  const [callState, setCallState] = useState<"idle" | "calling" | "incoming" | "connected">("idle");
+  const [callSession, setCallSession] = useState<{ caller: string; startedAt?: number; connectedAt?: number; status?: string } | null>(null);
+  const [showIncomingBanner, setShowIncomingBanner] = useState(false);
+  const [isCallMuted, setIsCallMuted] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+
+  const isOtherUserCalling = Boolean(
+    callSession &&
+    callSession.status === "calling" &&
+    callSession.caller !== username &&
+    callState !== "connected"
+  );
+
+  const callStateRef = useRef<"idle" | "calling" | "incoming" | "connected">("idle");
+  callStateRef.current = callState;
+
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const callTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const candidateListenersRef = useRef<(() => void)[]>([]);
+
+  const formatCallDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const endCallCleanup = useCallback((playEndTone = true) => {
+    callSounds.stopAll();
+    if (playEndTone) callSounds.playCallEnd();
+    setShowIncomingBanner(false);
+
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+
+    candidateListenersRef.current.forEach((unsub) => unsub());
+    candidateListenersRef.current = [];
+
+    setCallState("idle");
+    setCallSession(null);
+    setIsCallMuted(false);
+    setCallDuration(0);
+  }, []);
+
+  const handleStartCall = async () => {
+    if (!username || callState !== "idle") return;
+    try {
+      callSounds.playRingback();
+      setCallState("calling");
+      setCallSession({ caller: username, startedAt: Date.now() });
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      pcRef.current = pc;
+
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.ontrack = (event) => {
+        if (remoteAudioRef.current && event.streams[0]) {
+          remoteAudioRef.current.srcObject = event.streams[0];
+          remoteAudioRef.current.play().catch(() => {});
+        }
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          push(ref(rtdb, "call/candidates/caller"), event.candidate.toJSON()).catch(() => {});
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const callData = {
+        caller: username,
+        status: "calling",
+        offer: { type: offer.type, sdp: offer.sdp },
+        startedAt: Date.now(),
+      };
+
+      await set(ref(rtdb, "call/session"), callData);
+      onDisconnect(ref(rtdb, "call/session")).set({ status: "ended", endedBy: username });
+
+      // Listen for receiver candidates
+      const receiverCandidatesRef = ref(rtdb, "call/candidates/receiver");
+      const unsubCandidates = onValue(receiverCandidatesRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data && pcRef.current) {
+          Object.values(data).forEach((cand: any) => {
+            pcRef.current?.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+          });
+        }
+      });
+      candidateListenersRef.current.push(unsubCandidates);
+    } catch (error) {
+      console.error("Error starting call:", error);
+      alert("Could not access microphone or initiate call. Please ensure microphone permissions are granted.");
+      endCallCleanup(false);
+      remove(ref(rtdb, "call/session")).catch(() => {});
+    }
+  };
+
+  const handleAcceptCall = async () => {
+    if (!username) return;
+    try {
+      callSounds.stopAll();
+      setShowIncomingBanner(false);
+      const snap = await get(ref(rtdb, "call/session"));
+      const data = snap.val();
+      if (!data || data.status !== "calling" || !data.offer) {
+        alert("Call is no longer available.");
+        endCallCleanup(false);
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      pcRef.current = pc;
+
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.ontrack = (event) => {
+        if (remoteAudioRef.current && event.streams[0]) {
+          remoteAudioRef.current.srcObject = event.streams[0];
+          remoteAudioRef.current.play().catch(() => {});
+        }
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          push(ref(rtdb, "call/candidates/receiver"), event.candidate.toJSON()).catch(() => {});
+        }
+      };
+
+      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      await update(ref(rtdb, "call/session"), {
+        status: "connected",
+        answer: { type: answer.type, sdp: answer.sdp },
+        connectedAt: Date.now(),
+      });
+      onDisconnect(ref(rtdb, "call/session")).set({ status: "ended", endedBy: username });
+
+      // Listen for caller candidates
+      const callerCandidatesRef = ref(rtdb, "call/candidates/caller");
+      const unsubCandidates = onValue(callerCandidatesRef, (snapshot) => {
+        const candData = snapshot.val();
+        if (candData && pcRef.current) {
+          Object.values(candData).forEach((cand: any) => {
+            pcRef.current?.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+          });
+        }
+      });
+      candidateListenersRef.current.push(unsubCandidates);
+
+      setCallState("connected");
+      setCallDuration(0);
+      callTimerRef.current = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (error) {
+      console.error("Error accepting call:", error);
+      alert("Could not access microphone to answer call.");
+      handleEndCall();
+    }
+  };
+
+  const handleEndCall = async () => {
+    try {
+      await set(ref(rtdb, "call/session"), { status: "ended", endedBy: username });
+      remove(ref(rtdb, "call/candidates")).catch(() => {});
+    } catch {
+      // Ignore
+    }
+    endCallCleanup(true);
+  };
+
+  const handleToggleCallMute = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsCallMuted(!audioTrack.enabled);
+      }
+    }
+  };
 
   // Instagram-style 2-second hold reaction states
   const [reactionMenuMessageId, setReactionMenuMessageId] = useState<string | null>(null);
@@ -326,6 +540,9 @@ export default function ChatPage() {
         setShowEmojiPicker(false);
         setShowStickerPicker(false);
       }
+      if (headerMenuRef.current && !headerMenuRef.current.contains(event.target as Node)) {
+        setShowHeaderMenu(false);
+      }
       const target = event.target as HTMLElement | null;
       if (!target?.closest('.reaction-interactive')) {
         setReactionMenuMessageId(null);
@@ -412,13 +629,54 @@ export default function ChatPage() {
       onDisconnect(myTypingRef).remove();
     }
 
+    // Call session listener
+    const callRef = ref(rtdb, "call/session");
+    const unsubscribeCall = onValue(callRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (data && data.status === "calling") {
+        setCallSession(data);
+        if (data.caller !== username && callStateRef.current === "idle") {
+          setCallState("incoming");
+          setShowIncomingBanner(true);
+          callSounds.playRingtone();
+        }
+      } else if (data && data.status === "connected") {
+        if (callStateRef.current === "calling" && data.answer && pcRef.current) {
+          callSounds.stopAll();
+          try {
+            if (pcRef.current.signalingState === "have-local-offer") {
+              await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+            }
+          } catch (e) {
+            console.error("Failed to set remote answer:", e);
+          }
+          setCallState("connected");
+          if (!callTimerRef.current) {
+            setCallDuration(0);
+            callTimerRef.current = setInterval(() => {
+              setCallDuration((prev) => prev + 1);
+            }, 1000);
+          }
+        }
+      } else if (data && data.status === "ended") {
+        if (callStateRef.current !== "idle") {
+          endCallCleanup(true);
+        }
+      } else if (!data) {
+        if (callStateRef.current !== "idle") {
+          endCallCleanup(false);
+        }
+      }
+    });
+
     return () => {
       unsubscribeMessages();
       unsubscribeBg();
       unsubscribeTyping();
       unsubscribeStickers();
+      unsubscribeCall();
     };
-  }, [isLoggedIn, username, messageLimit]);
+  }, [isLoggedIn, username, messageLimit, endCallCleanup]);
 
   // Auto-scroll when typing indicator appears if we are at bottom
   useEffect(() => {
@@ -1107,7 +1365,7 @@ export default function ChatPage() {
       {globalBackground && <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] z-0 pointer-events-none" />}
 
       {/* Header */}
-      <motion.header initial={{ y: -50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="flex-none p-4 border-b border-[#d4af37]/20 bg-black/40 backdrop-blur-md flex items-center justify-between z-10">
+      <motion.header initial={{ y: -50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="flex-none p-4 border-b border-[#d4af37]/20 bg-black/40 backdrop-blur-md flex items-center justify-between relative z-50">
         <div className="flex items-center gap-4">
           <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}><Link href="/" className="text-[#8a7a6a] hover:text-[#d4af37] transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1119,50 +1377,175 @@ export default function ChatPage() {
             Whispers
           </h1>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 relative" ref={headerMenuRef}>
           <input
             type="file"
             accept="image/*"
             ref={bgInputRef}
             className="hidden"
-            onChange={handleBackgroundUpload}
+            onChange={(e) => {
+              handleBackgroundUpload(e);
+              setShowHeaderMenu(false);
+            }}
           />
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            onClick={() => bgInputRef.current?.click()}
-            disabled={isUploadingGlobal}
-            className="text-xs text-[#d4af37]/80 border border-[#d4af37]/30 px-3 py-1.5 rounded-sm hover:bg-[#d4af37]/10 hover:text-[#d4af37] transition-colors uppercase tracking-widest font-[family-name:var(--font-playfair)] flex items-center gap-2"
-          >
-            {isUploadingGlobal ? (
-              <span className="animate-pulse">Uploading...</span>
-            ) : (
+
+          {/* Audio Call Button with Glowing Ring & Click to Join */}
+          <div className="relative flex items-center justify-center">
+            {isOtherUserCalling && (
               <>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                  <polyline points="21 15 16 10 5 21"></polyline>
-                </svg>
-                <span className="hidden sm:inline">Set Wallpaper</span>
+                {/* Outward Radiating Pulse Wave */}
+                <motion.span
+                  animate={{ scale: [1, 1.45, 1.9], opacity: [0.8, 0.35, 0] }}
+                  transition={{ repeat: Infinity, duration: 1.6, ease: "easeOut" }}
+                  className="absolute -inset-1.5 rounded-full bg-emerald-400/40 pointer-events-none"
+                />
+                {/* Intense Glowing Border Ring */}
+                <motion.span
+                  animate={{ scale: [1, 1.12, 1], opacity: [1, 0.65, 1] }}
+                  transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                  className="absolute -inset-1 rounded-full border-2 border-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.9),0_0_30px_rgba(52,211,153,0.5)] pointer-events-none"
+                />
               </>
             )}
-          </motion.button>
 
-          {username === "firebase" && (
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-              onClick={handleClearChat}
-              className="text-xs text-red-500/80 border border-red-500/30 px-3 py-1.5 rounded-sm hover:bg-red-500/10 hover:text-red-400 transition-colors uppercase tracking-widest font-[family-name:var(--font-playfair)]"
+            <motion.button
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={isOtherUserCalling ? handleAcceptCall : handleStartCall}
+              disabled={callState === "connected" || callState === "calling"}
+              className={`relative z-10 h-9 flex items-center gap-1.5 rounded-full transition-all border cursor-pointer select-none ${
+                isOtherUserCalling
+                  ? "px-3.5 bg-emerald-500/25 text-emerald-300 border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.7)] font-semibold"
+                  : callState === "connected"
+                  ? "w-9 justify-center bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-emerald-500/20 shadow-md"
+                  : callState === "calling"
+                  ? "w-9 justify-center bg-[#d4af37]/20 text-[#d4af37] border-[#d4af37]/50 animate-pulse shadow-[#d4af37]/20 shadow-md"
+                  : "w-9 justify-center bg-black/40 text-[#8a7a6a] border-white/10 hover:text-[#d4af37] hover:border-[#d4af37]/40 hover:bg-[#d4af37]/10"
+              } disabled:cursor-not-allowed`}
+              title={
+                isOtherUserCalling
+                  ? `${callSession?.caller || "Partner"} is calling • Click to Join`
+                  : callState === "connected"
+                  ? "Call in progress"
+                  : callState === "calling"
+                  ? "Calling..."
+                  : "Start Voice Call"
+              }
+              aria-label="Audio call button"
             >
-              Clear History
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isOtherUserCalling ? "text-emerald-300 animate-bounce" : ""}>
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+              </svg>
+              {isOtherUserCalling && (
+                <span className="text-[11px] font-mono tracking-wider uppercase font-bold text-emerald-300">
+                  Join Call
+                </span>
+              )}
             </motion.button>
-          )}
-          <span className="text-[#8a7a6a] text-xs font-mono uppercase tracking-widest hidden sm:inline">
+          </div>
+
+          <span className="text-[#8a7a6a] text-xs font-mono uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/5 border border-white/5 hidden sm:inline-block">
             {username}
           </span>
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            onClick={handleLogout}
-            className="text-xs text-[#a82d6a] border border-[#a82d6a]/40 px-3 py-1.5 rounded-sm hover:bg-[#a82d6a]/10 transition-colors uppercase tracking-widest font-[family-name:var(--font-playfair)]"
+
+          {/* 3-Dot Menu Button */}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowHeaderMenu(!showHeaderMenu)}
+            className={`w-9 h-9 flex items-center justify-center rounded-full transition-all border cursor-pointer ${
+              showHeaderMenu 
+                ? "bg-[#d4af37]/20 text-[#d4af37] border-[#d4af37]/50" 
+                : "bg-black/40 text-[#8a7a6a] border-white/10 hover:text-[#d4af37] hover:border-[#d4af37]/40"
+            }`}
+            title="Options"
+            aria-label="Chat options"
           >
-            Logout
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="1.75" />
+              <circle cx="12" cy="12" r="1.75" />
+              <circle cx="12" cy="19" r="1.75" />
+            </svg>
           </motion.button>
+
+          {/* Redesigned 3-Dot Dropdown Menu */}
+          <AnimatePresence>
+            {showHeaderMenu && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: -8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -8 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="absolute right-0 top-12 w-56 bg-[#161214]/95 backdrop-blur-xl border border-[#d4af37]/30 rounded-2xl p-1.5 shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-[100] flex flex-col gap-1 select-none pointer-events-auto"
+              >
+                {/* User info banner */}
+                <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-[#8a7a6a] uppercase tracking-wider font-mono">Logged in as</p>
+                    <p className="text-xs text-[#d4af37] font-[family-name:var(--font-playfair)] font-medium truncate">{username}</p>
+                  </div>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Online" />
+                </div>
+
+                {/* Change Wallpaper */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    bgInputRef.current?.click();
+                    setShowHeaderMenu(false);
+                  }}
+                  disabled={isUploadingGlobal}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-xs text-[#e8dfc8] hover:text-[#d4af37] hover:bg-[#d4af37]/10 rounded-xl transition-all font-[family-name:var(--font-playfair)] text-left cursor-pointer disabled:opacity-50"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#d4af37]">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  <span className="flex-1">
+                    {isUploadingGlobal ? "Uploading..." : "Change Wallpaper"}
+                  </span>
+                </button>
+
+                {/* Clear Chat History (admin) */}
+                {username === "firebase" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowHeaderMenu(false);
+                      handleClearChat();
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs text-red-400/90 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-all font-[family-name:var(--font-playfair)] text-left cursor-pointer"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                    <span>Clear Chat History</span>
+                  </button>
+                )}
+
+                <div className="h-[1px] bg-white/10 my-0.5" />
+
+                {/* Logout */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowHeaderMenu(false);
+                    handleLogout();
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-xl transition-all font-[family-name:var(--font-playfair)] text-left cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                  <span>Logout</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </motion.header>
 
@@ -1864,6 +2247,185 @@ export default function ChatPage() {
                 />
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Hidden Audio element for remote WebRTC voice playback */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+
+      {/* Floating Calling Indicator for Caller */}
+      <AnimatePresence>
+        {callState === "calling" && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-3.5 bg-[#181315]/95 backdrop-blur-xl border border-[#d4af37]/40 shadow-[0_15px_40px_rgba(0,0,0,0.85),0_0_25px_rgba(212,175,55,0.2)] px-5 py-2.5 rounded-full select-none"
+          >
+            <div className="relative flex items-center justify-center w-7 h-7">
+              <span className="absolute inset-0 rounded-full bg-[#d4af37]/30 animate-ping" />
+              <div className="w-7 h-7 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/50 flex items-center justify-center text-[#d4af37]">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-pulse">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                </svg>
+              </div>
+            </div>
+
+            <div className="flex flex-col">
+              <span className="text-xs text-[#f5edd6] font-[family-name:var(--font-playfair)] font-semibold leading-tight">
+                Calling...
+              </span>
+              <span className="text-[10px] text-[#d4af37] font-mono leading-tight">
+                Waiting for partner to join
+              </span>
+            </div>
+
+            <div className="h-6 w-[1px] bg-white/10 mx-1" />
+
+            {/* Cancel Call Button */}
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleEndCall}
+              className="w-7 h-7 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow-md shadow-rose-600/30 cursor-pointer transition-colors"
+              title="Cancel Call"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" />
+                <line x1="22" y1="2" x2="2" y2="22" />
+              </svg>
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Incoming Call Banner for Receiver */}
+      <AnimatePresence>
+        {showIncomingBanner && isOtherUserCalling && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-3.5 bg-[#181315]/95 backdrop-blur-xl border border-emerald-500/50 shadow-[0_15px_40px_rgba(0,0,0,0.85),0_0_25px_rgba(52,211,153,0.3)] px-4 sm:px-5 py-2.5 rounded-full select-none"
+          >
+            <div className="relative flex items-center justify-center w-7 h-7">
+              <span className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
+              <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-bounce">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                </svg>
+              </div>
+            </div>
+
+            <div className="flex flex-col">
+              <span className="text-xs text-[#f5edd6] font-[family-name:var(--font-playfair)] font-semibold leading-tight">
+                {callSession?.caller || "Partner"} is calling...
+              </span>
+              <span className="text-[10px] text-emerald-400 font-mono leading-tight">
+                Click Join or tap the glowing icon
+              </span>
+            </div>
+
+            <div className="h-6 w-[1px] bg-white/10 mx-1" />
+
+            {/* Join Button */}
+            <motion.button
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.94 }}
+              onClick={handleAcceptCall}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-full shadow-md shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>Join</span>
+            </motion.button>
+
+            {/* Silence / Dismiss Banner Button (keeps header icon glowing) */}
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => {
+                setShowIncomingBanner(false);
+                callSounds.stopAll();
+              }}
+              className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 text-white/70 flex items-center justify-center text-xs cursor-pointer transition-colors"
+              title="Silence ringtone (icon stays glowing)"
+            >
+              ✕
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Active Call Bar (Connected) */}
+      <AnimatePresence>
+        {callState === "connected" && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="fixed top-20 right-4 sm:right-8 z-[110] flex items-center gap-3 bg-[#181315]/95 backdrop-blur-xl border border-[#d4af37]/40 shadow-[0_15px_40px_rgba(0,0,0,0.85)] px-4 py-2.5 rounded-full select-none"
+          >
+            {/* Pulsing indicator */}
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400" />
+              <div className="flex flex-col">
+                <span className="text-[11px] text-[#f5edd6] font-[family-name:var(--font-playfair)] font-semibold leading-tight">
+                  {callSession?.caller === username ? "Voice Call" : callSession?.caller || "Voice Call"}
+                </span>
+                <span className="text-[10px] text-[#d4af37] font-mono leading-tight">
+                  {formatCallDuration(callDuration)}
+                </span>
+              </div>
+            </div>
+
+            <div className="h-6 w-[1px] bg-white/10 mx-1" />
+
+            {/* Mute Microphone Button */}
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleToggleCallMute}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer border ${
+                isCallMuted
+                  ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                  : "bg-white/10 text-white hover:bg-white/20 border-white/10"
+              }`}
+              title={isCallMuted ? "Unmute Mic" : "Mute Mic"}
+            >
+              {isCallMuted ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+                  <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              )}
+            </motion.button>
+
+            {/* End Call Button */}
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleEndCall}
+              className="w-8 h-8 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow-md shadow-rose-600/30 cursor-pointer transition-colors"
+              title="End Call"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" />
+                <line x1="22" y1="2" x2="2" y2="22" />
+              </svg>
+            </motion.button>
           </motion.div>
         )}
       </AnimatePresence>
