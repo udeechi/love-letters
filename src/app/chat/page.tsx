@@ -10,6 +10,13 @@ import { signInWithCustomToken, signOut } from "firebase/auth";
 import { db, auth, rtdb } from "@/lib/firebase";
 import { RTC_CONFIG, callSounds } from "@/lib/webrtc";
 import Link from "next/link";
+import dynamic from "next/dynamic";
+import { AgoraCallManager, getAgoraRTC } from "@/lib/agora";
+import type { ILocalVideoTrack, IAgoraRTCRemoteUser } from "agora-rtc-sdk-ng";
+
+const VideoCallOverlay = dynamic(() => import("@/components/chat/VideoCallOverlay"), {
+  ssr: false,
+});
 
 interface CustomSticker {
   id: string;
@@ -216,10 +223,93 @@ export default function ChatPage() {
 
   // WebRTC Call States & Refs
   const [callState, setCallState] = useState<"idle" | "calling" | "incoming" | "connected">("idle");
-  const [callSession, setCallSession] = useState<{ caller: string; startedAt?: number; connectedAt?: number; status?: string } | null>(null);
+  const [callSession, setCallSession] = useState<{
+    caller: string;
+    startedAt?: number;
+    connectedAt?: number;
+    status?: string;
+    videoUsers?: Record<string, boolean>;
+    isVideoActive?: boolean;
+  } | null>(null);
   const [showIncomingBanner, setShowIncomingBanner] = useState(false);
   const [isCallMuted, setIsCallMuted] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+
+  // Video Call States (Dual Mode: Direct WebRTC P2P vs Agora Cloud Relay)
+  const [isVideoActive, setIsVideoActive] = useState(false);
+  const [isCameraOn, setIsCameraOn] = useState(false);
+  const isCameraOnRef = useRef(false);
+  isCameraOnRef.current = isCameraOn;
+  const isCallMutedRef = useRef(false);
+  isCallMutedRef.current = isCallMuted;
+
+  const [isPartnerCameraOn, setIsPartnerCameraOn] = useState(false);
+  const [videoRoute, setVideoRoute] = useState<"direct" | "agora">("direct");
+  const videoRouteRef = useRef<"direct" | "agora">("direct");
+  videoRouteRef.current = videoRoute;
+
+  // WebRTC Direct Video Tracks (0 Agora mins, 0 TURN bandwidth)
+  const [localMediaStreamTrack, setLocalMediaStreamTrack] = useState<MediaStreamTrack | null>(null);
+  const localMediaStreamTrackRef = useRef<MediaStreamTrack | null>(null);
+  localMediaStreamTrackRef.current = localMediaStreamTrack;
+  const [remoteWebRtcStream, setRemoteWebRtcStream] = useState<MediaStream | null>(null);
+  const remoteVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+
+  // Agora Relay Video Tracks (Protects 500MB Metered TURN quota)
+  const [localAgoraVideoTrack, setLocalAgoraVideoTrack] = useState<ILocalVideoTrack | null>(null);
+  const localAgoraVideoTrackRef = useRef<ILocalVideoTrack | null>(null);
+  localAgoraVideoTrackRef.current = localAgoraVideoTrack;
+  const [agoraRemoteUsers, setAgoraRemoteUsers] = useState<IAgoraRTCRemoteUser[]>([]);
+  const agoraManagerRef = useRef<AgoraCallManager | null>(null);
+
+  const getVideoTransceiver = (pc: RTCPeerConnection | null): RTCRtpTransceiver | null => {
+    if (!pc) return null;
+    try {
+      return (
+        pc.getTransceivers().find(
+          (t) =>
+            t.receiver?.track?.kind === "video" ||
+            t.sender?.track?.kind === "video" ||
+            (t as any).mid === "video"
+        ) || null
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  const getRemoteVideoTrack = (pc: RTCPeerConnection | null): MediaStreamTrack | null => {
+    if (!pc) return null;
+    try {
+      const receiver = pc.getReceivers().find((r) => r.track && r.track.kind === "video");
+      return receiver ? receiver.track : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const checkIsRelayed = async (pc: RTCPeerConnection | null): Promise<boolean> => {
+    if (!pc) return false;
+    try {
+      const stats = await pc.getStats();
+      let isRelay = false;
+      stats.forEach((report) => {
+        if (
+          report.type === "candidate-pair" &&
+          (report.nominated === true || report.state === "succeeded" || (report as any).selected === true)
+        ) {
+          const localCand = stats.get(report.localCandidateId);
+          const remoteCand = stats.get(report.remoteCandidateId);
+          if (localCand?.candidateType === "relay" || remoteCand?.candidateType === "relay") {
+            isRelay = true;
+          }
+        }
+      });
+      return isRelay;
+    } catch {
+      return false;
+    }
+  };
 
   const isOtherUserCalling = Boolean(
     callSession &&
@@ -280,6 +370,29 @@ export default function ChatPage() {
     if (playEndTone) callSounds.playCallEnd();
     setShowIncomingBanner(false);
 
+    // Clean up Agora Video if active
+    if (agoraManagerRef.current) {
+      agoraManagerRef.current.leave();
+      agoraManagerRef.current = null;
+    }
+    setIsVideoActive(false);
+    setIsCameraOn(false);
+    setIsPartnerCameraOn(false);
+    remoteVideoTrackRef.current = null;
+    if (localMediaStreamTrackRef.current) {
+      localMediaStreamTrackRef.current.stop();
+      localMediaStreamTrackRef.current = null;
+    }
+    if (localAgoraVideoTrackRef.current) {
+      localAgoraVideoTrackRef.current.stop();
+      localAgoraVideoTrackRef.current.close();
+      localAgoraVideoTrackRef.current = null;
+    }
+    setLocalMediaStreamTrack(null);
+    setLocalAgoraVideoTrack(null);
+    setRemoteWebRtcStream(null);
+    setAgoraRemoteUsers([]);
+
     pendingCandidatesRef.current = [];
     processedCandidateKeysRef.current.clear();
 
@@ -336,10 +449,27 @@ export default function ChatPage() {
 
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
+      // Add video transceiver so video can be streamed immediately in Direct mode without renegotiation
+      pc.addTransceiver("video", { direction: "sendrecv" });
+
       pc.ontrack = (event) => {
-        if (remoteAudioRef.current && event.streams[0]) {
-          remoteAudioRef.current.srcObject = event.streams[0];
-          remoteAudioRef.current.play().catch(() => {});
+        if (event.track.kind === "audio") {
+          if (remoteAudioRef.current && event.streams[0]) {
+            remoteAudioRef.current.srcObject = event.streams[0];
+            remoteAudioRef.current.play().catch(() => {});
+          }
+        } else if (event.track.kind === "video") {
+          const track = event.track;
+          remoteVideoTrackRef.current = track;
+          const vStream = event.streams[0] || new MediaStream([track]);
+          setRemoteWebRtcStream(vStream);
+          track.onunmute = () => {
+            setRemoteWebRtcStream(new MediaStream([track]));
+          };
+          track.onended = () => {
+            remoteVideoTrackRef.current = null;
+            setRemoteWebRtcStream(null);
+          };
         }
       };
 
@@ -416,10 +546,27 @@ export default function ChatPage() {
 
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
+      // Add video transceiver so video can be streamed immediately in Direct mode without renegotiation
+      pc.addTransceiver("video", { direction: "sendrecv" });
+
       pc.ontrack = (event) => {
-        if (remoteAudioRef.current && event.streams[0]) {
-          remoteAudioRef.current.srcObject = event.streams[0];
-          remoteAudioRef.current.play().catch(() => {});
+        if (event.track.kind === "audio") {
+          if (remoteAudioRef.current && event.streams[0]) {
+            remoteAudioRef.current.srcObject = event.streams[0];
+            remoteAudioRef.current.play().catch(() => {});
+          }
+        } else if (event.track.kind === "video") {
+          const track = event.track;
+          remoteVideoTrackRef.current = track;
+          const vStream = event.streams[0] || new MediaStream([track]);
+          setRemoteWebRtcStream(vStream);
+          track.onunmute = () => {
+            setRemoteWebRtcStream(new MediaStream([track]));
+          };
+          track.onended = () => {
+            remoteVideoTrackRef.current = null;
+            setRemoteWebRtcStream(null);
+          };
         }
       };
 
@@ -483,12 +630,148 @@ export default function ChatPage() {
   };
 
   const handleToggleCallMute = () => {
+    const nextMuted = !isCallMuted;
+    setIsCallMuted(nextMuted);
+
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsCallMuted(!audioTrack.enabled);
+        audioTrack.enabled = !nextMuted;
       }
+    }
+
+    if (agoraManagerRef.current) {
+      agoraManagerRef.current.setAudioMuted(nextMuted);
+    }
+  };
+
+  const handleToggleCamera = async () => {
+    if (!username || callState !== "connected") return;
+    const nextCam = !isCameraOn;
+
+    if (nextCam) {
+      try {
+        // 0. Check secure context (getUserMedia requires HTTPS or localhost)
+        if (
+          typeof window !== "undefined" &&
+          !window.isSecureContext &&
+          window.location.hostname !== "localhost" &&
+          window.location.hostname !== "127.0.0.1"
+        ) {
+          alert(
+            "Camera access requires HTTPS or localhost.\n\n" +
+            "If accessing via Wi-Fi IP (e.g. 192.168.x.x) on Chrome:\n" +
+            "1. Open chrome://flags/#unsafely-treat-insecure-origin-as-secure in Chrome\n" +
+            `2. Add '${window.location.origin}' to enabled origins\n` +
+            "3. Relaunch Chrome, or test locally on this PC using two tabs at http://localhost:3000."
+          );
+          return;
+        }
+
+        // 1. Detect if current WebRTC call is using TURN relay
+        const isRelayed = await checkIsRelayed(pcRef.current);
+        const mode = isRelayed ? "agora" : "direct";
+        setVideoRoute(mode);
+        videoRouteRef.current = mode;
+
+        // 2. Request user camera directly via native browser getUserMedia
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: "user",
+          },
+        });
+        const videoTrack = stream.getVideoTracks()[0];
+        localMediaStreamTrackRef.current = videoTrack;
+        setLocalMediaStreamTrack(videoTrack);
+
+        setIsCameraOn(true);
+        isCameraOnRef.current = true;
+        setIsVideoActive(true);
+
+        if (mode === "direct") {
+          // DIRECT MODE (Same Wi-Fi / Direct STUN P2P):
+          // Stream directly through WebRTC transceiver! 0 Agora mins, 0 TURN bandwidth.
+          const pc = pcRef.current;
+          if (pc) {
+            const vt = getVideoTransceiver(pc);
+            if (vt && vt.sender) {
+              await vt.sender.replaceTrack(videoTrack);
+            } else {
+              const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+              if (sender) {
+                await sender.replaceTrack(videoTrack);
+              } else {
+                pc.addTrack(videoTrack, stream);
+              }
+            }
+          }
+          await update(ref(rtdb, "call/session"), {
+            videoMode: "direct",
+            [`videoUsers/${username}`]: true,
+          });
+        } else {
+          // RELAY MODE (TURN detected):
+          // Block video from WebRTC TURN to protect 500MB limit. Route through Agora instead!
+          const AgoraRTC = await getAgoraRTC();
+          const agoraTrack = AgoraRTC.createCustomVideoTrack({
+            mediaStreamTrack: videoTrack,
+          });
+          localAgoraVideoTrackRef.current = agoraTrack;
+          setLocalAgoraVideoTrack(agoraTrack);
+
+          if (agoraManagerRef.current?.isJoined()) {
+            await agoraManagerRef.current.setLocalVideoTrack(agoraTrack as any);
+          }
+
+          await update(ref(rtdb, "call/session"), {
+            videoMode: "agora",
+            [`videoUsers/${username}`]: true,
+          });
+        }
+      } catch (err: any) {
+        console.error("Camera access error:", err);
+        alert("Camera error: " + (err.message || "Could not access camera. Please check camera permissions."));
+      }
+    } else {
+      // Turn camera OFF
+      setIsCameraOn(false);
+      isCameraOnRef.current = false;
+
+      if (localMediaStreamTrackRef.current) {
+        localMediaStreamTrackRef.current.stop();
+        localMediaStreamTrackRef.current = null;
+        setLocalMediaStreamTrack(null);
+      }
+
+      if (localAgoraVideoTrackRef.current) {
+        localAgoraVideoTrackRef.current.stop();
+        localAgoraVideoTrackRef.current.close();
+        localAgoraVideoTrackRef.current = null;
+        setLocalAgoraVideoTrack(null);
+      }
+
+      const pc = pcRef.current;
+      if (pc) {
+        const vt = getVideoTransceiver(pc);
+        if (vt && vt.sender) {
+          vt.sender.replaceTrack(null).catch(() => {});
+        } else {
+          const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+          if (sender) {
+            sender.replaceTrack(null).catch(() => {});
+          }
+        }
+      }
+
+      if (agoraManagerRef.current?.isJoined()) {
+        await agoraManagerRef.current.setLocalVideoTrack(null);
+      }
+
+      await update(ref(rtdb, "call/session"), {
+        [`videoUsers/${username}`]: false,
+      });
     }
   };
 
@@ -708,6 +991,7 @@ export default function ChatPage() {
           callSounds.playRingtone();
         }
       } else if (data && data.status === "connected") {
+        setCallSession(data);
         if (callStateRef.current === "calling" && data.answer && pcRef.current) {
           callSounds.stopAll();
           try {
@@ -725,6 +1009,103 @@ export default function ChatPage() {
               setCallDuration((prev) => prev + 1);
             }, 1000);
           }
+        }
+
+        // Video Upgrade / Downgrade Sync
+        const videoUsers: Record<string, boolean> = data.videoUsers || {};
+        const anyoneHasCamera = Object.values(videoUsers).some((v) => Boolean(v));
+        const myCamOn = Boolean(username && videoUsers[username]);
+        const partnerCamOn = Object.entries(videoUsers).some(
+          ([user, on]) => user !== username && Boolean(on)
+        );
+        const mode = (data.videoMode as "direct" | "agora") || "direct";
+
+        setVideoRoute(mode);
+        videoRouteRef.current = mode;
+        setIsPartnerCameraOn(partnerCamOn);
+
+        if (myCamOn !== isCameraOnRef.current) {
+          setIsCameraOn(myCamOn);
+        }
+
+        const channelName = `call_room_${data.startedAt || "default"}`;
+
+        if (anyoneHasCamera) {
+          setIsVideoActive(true);
+
+          if (mode === "agora") {
+            // RELAY MODE: Join Agora so Metered TURN is not overloaded
+            if (!agoraManagerRef.current || !agoraManagerRef.current.isJoined()) {
+              const mgr = new AgoraCallManager({
+                onRemoteUsersChange: (users) => setAgoraRemoteUsers([...users]),
+                onLocalVideoChange: (track) => {
+                  setLocalAgoraVideoTrack(track);
+                  localAgoraVideoTrackRef.current = track;
+                },
+              });
+              agoraManagerRef.current = mgr;
+
+              // Silence WebRTC audio while in Agora video room
+              if (remoteAudioRef.current) remoteAudioRef.current.muted = true;
+              localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = false));
+
+              mgr.join({
+                channelName,
+                username: username || "user",
+                enableVideo: myCamOn,
+                enableAudio: !isCallMutedRef.current,
+                existingVideoTrack: localAgoraVideoTrackRef.current as any,
+              }).catch((err) => {
+                console.error("Failed to join Agora channel:", err);
+              });
+            }
+          } else {
+            // DIRECT MODE: Direct WebRTC P2P (0 Agora mins, 0 TURN MB)
+            // Leave Agora if it was previously joined
+            if (agoraManagerRef.current && agoraManagerRef.current.isJoined()) {
+              agoraManagerRef.current.leave();
+              agoraManagerRef.current = null;
+            }
+            // Ensure WebRTC audio is active
+            if (remoteAudioRef.current) remoteAudioRef.current.muted = false;
+            localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !isCallMutedRef.current));
+
+            // Sync remote WebRTC video stream
+            if (partnerCamOn) {
+              const remoteTrack = remoteVideoTrackRef.current || getRemoteVideoTrack(pcRef.current);
+              if (remoteTrack) {
+                setRemoteWebRtcStream(new MediaStream([remoteTrack]));
+              }
+            } else {
+              setRemoteWebRtcStream(null);
+            }
+          }
+        } else {
+          // No one has camera enabled -> fallback to WebRTC audio
+          if (agoraManagerRef.current && agoraManagerRef.current.isJoined()) {
+            agoraManagerRef.current.leave();
+            agoraManagerRef.current = null;
+          }
+          setIsVideoActive(false);
+          setIsCameraOn(false);
+          setIsPartnerCameraOn(false);
+          if (localMediaStreamTrackRef.current) {
+            localMediaStreamTrackRef.current.stop();
+            localMediaStreamTrackRef.current = null;
+          }
+          if (localAgoraVideoTrackRef.current) {
+            localAgoraVideoTrackRef.current.stop();
+            localAgoraVideoTrackRef.current.close();
+            localAgoraVideoTrackRef.current = null;
+          }
+          setLocalMediaStreamTrack(null);
+          setLocalAgoraVideoTrack(null);
+          setRemoteWebRtcStream(null);
+          setAgoraRemoteUsers([]);
+
+          // Un-silence WebRTC audio
+          if (remoteAudioRef.current) remoteAudioRef.current.muted = false;
+          localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !isCallMutedRef.current));
         }
       } else if (data && data.status === "ended") {
         if (callStateRef.current !== "idle") {
@@ -2481,6 +2862,32 @@ export default function ChatPage() {
               )}
             </motion.button>
 
+            {/* Toggle Camera Button */}
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleToggleCamera}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer border ${
+                isCameraOn
+                  ? "bg-[#d4af37] text-black border-[#d4af37] shadow-sm shadow-[#d4af37]/50"
+                  : "bg-white/10 text-white hover:bg-white/20 border-white/10"
+              }`}
+              title={isCameraOn ? "Turn Camera Off" : "Turn Camera On"}
+            >
+              {isCameraOn ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 7l-7 5 7 5V7z" />
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" />
+                  <path d="M23 7l-7 5 7 5V7z" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              )}
+            </motion.button>
+
             {/* End Call Button */}
             <motion.button
               whileHover={{ scale: 1.1 }}
@@ -2497,6 +2904,25 @@ export default function ChatPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Video Call Overlay (Dual Mode: Direct WebRTC P2P + Agora Cloud Relay) */}
+      {callState === "connected" && isVideoActive && (
+        <VideoCallOverlay
+          localMediaStreamTrack={localMediaStreamTrack}
+          localAgoraVideoTrack={localAgoraVideoTrack}
+          remoteWebRtcStream={remoteWebRtcStream}
+          remoteUsers={agoraRemoteUsers}
+          videoRoute={videoRoute}
+          isCameraOn={isCameraOn}
+          isPartnerCameraOn={isPartnerCameraOn}
+          isMuted={isCallMuted}
+          onToggleCamera={handleToggleCamera}
+          onToggleMute={handleToggleCallMute}
+          onEndCall={handleEndCall}
+          partnerName={callSession?.caller === username ? "Partner" : callSession?.caller || "Partner"}
+          callDuration={callDuration}
+        />
+      )}
     </div>
   );
 }
