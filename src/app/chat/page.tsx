@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
-import EmojiPicker, { Theme } from "emoji-picker-react";
+import { Theme } from "emoji-picker-react";
 import { collection, query, orderBy, onSnapshot, addDoc, limit, serverTimestamp, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
 import { ref, onValue, set, onDisconnect, remove, push, update, get } from "firebase/database";
 import { signInWithCustomToken, signOut } from "firebase/auth";
@@ -15,6 +15,10 @@ import { AgoraCallManager, getAgoraRTC } from "@/lib/agora";
 import type { ILocalVideoTrack, IAgoraRTCRemoteUser } from "agora-rtc-sdk-ng";
 
 const VideoCallOverlay = dynamic(() => import("@/components/chat/VideoCallOverlay"), {
+  ssr: false,
+});
+
+const EmojiPicker = dynamic(() => import("emoji-picker-react"), {
   ssr: false,
 });
 
@@ -193,6 +197,7 @@ export default function ChatPage() {
   const [authMode, setAuthMode] = useState<"login" | "popup" | "reg_user" | "reg_pass">("login");
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const messagesById = useMemo(() => new Map(messages.map(m => [m.id, m])), [messages]);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [messageLimit, setMessageLimit] = useState(50);
@@ -1907,7 +1912,7 @@ export default function ChatPage() {
       } : {}}
     >
       {/* Background Overlay */}
-      {globalBackground && <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] z-0 pointer-events-none" />}
+      {globalBackground && <div className="absolute inset-0 bg-black/60 z-0 pointer-events-none" />}
 
       {/* Header */}
       <motion.header initial={{ y: -50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="flex-none p-4 border-b border-[#d4af37]/20 bg-black/40 backdrop-blur-md flex items-center justify-between relative z-50">
@@ -2171,7 +2176,7 @@ export default function ChatPage() {
                   </span>
                   
                   {msg.replyToId && (() => {
-                    const replyMsg = messages.find(m => m.id === msg.replyToId);
+                    const replyMsg = messagesById.get(msg.replyToId);
                     if (!replyMsg) return null;
                     return (
                       <div 

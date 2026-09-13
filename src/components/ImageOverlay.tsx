@@ -50,7 +50,13 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
   }, []);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || !isEditing) {
+      if (moveableRef.current) {
+        moveableRef.current.destroy();
+        moveableRef.current = null;
+      }
+      return;
+    }
 
     const target = selectedIndex !== null ? imageElRefs.current.get(selectedIndex) || null : null;
 
@@ -150,7 +156,7 @@ export default function ImageOverlay({ images, isEditing, onSave }: ImageOverlay
       moveableRef.current?.destroy();
       moveableRef.current = null;
     };
-  }, [selectedIndex]);
+  }, [selectedIndex, isEditing]);
 
   const handleDeselect = useCallback((e: React.MouseEvent) => {
     if (e.target === containerRef.current) {

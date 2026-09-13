@@ -138,12 +138,12 @@ export default function Book() {
     }
   }, [isFolding, isLeftFolding, phase, currentSpread, totalSpreads, isEditing]);
 
-  const handleSaveContent = (c: string) => { if (leftPage) updatePage(leftPage.id, { content: c }); };
-  const handleSaveRightContent = (c: string) => { if (rightPage) updatePage(rightPage.id, { content: c }); };
-  const handleSaveMobileContent = (c: string) => { if (mobilePage) updatePage(mobilePage.id, { content: c }); };
-  const handleSaveImages = (imgs: PageImage[]) => { if (leftPage) updatePage(leftPage.id, { images: imgs }); };
-  const handleSaveRightImages = (imgs: PageImage[]) => { if (rightPage) updatePage(rightPage.id, { images: imgs }); };
-  const handleSaveMobileImages = (imgs: PageImage[]) => { if (mobilePage) updatePage(mobilePage.id, { images: imgs }); };
+  const handleSaveContent = useCallback((c: string) => { if (leftPage) updatePage(leftPage.id, { content: c }); }, [leftPage, updatePage]);
+  const handleSaveRightContent = useCallback((c: string) => { if (rightPage) updatePage(rightPage.id, { content: c }); }, [rightPage, updatePage]);
+  const handleSaveMobileContent = useCallback((c: string) => { if (mobilePage) updatePage(mobilePage.id, { content: c }); }, [mobilePage, updatePage]);
+  const handleSaveImages = useCallback((imgs: PageImage[]) => { if (leftPage) updatePage(leftPage.id, { images: imgs }); }, [leftPage, updatePage]);
+  const handleSaveRightImages = useCallback((imgs: PageImage[]) => { if (rightPage) updatePage(rightPage.id, { images: imgs }); }, [rightPage, updatePage]);
+  const handleSaveMobileImages = useCallback((imgs: PageImage[]) => { if (mobilePage) updatePage(mobilePage.id, { images: imgs }); }, [mobilePage, updatePage]);
   const [choosingDeleteTarget, setChoosingDeleteTarget] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<NotebookPage | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -391,7 +391,7 @@ export default function Book() {
                   {/* RIGHT BACK COVER & PAPER EDGES */}
                   <div className="absolute inset-0 w-1/2 left-1/2 pointer-events-none" style={{ zIndex: 0, transformStyle: "preserve-3d" }}>
                     <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #2d0a1b 0%, #3d1528 40%, #4a1028 100%)", borderRadius: "0 8px 8px 0", transform: "translateZ(-4px)", boxShadow: "20px 20px 40px rgba(0,0,0,0.6)" }}>
-                      <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/leather.png')] rounded-[inherit]" />
+                      <div className="absolute inset-0 opacity-20 bg-[url('/textures/leather.png')] rounded-[inherit]" />
                     </div>
                     <div className="absolute top-1 bottom-1 right-1 left-0" style={{ background: "repeating-linear-gradient(90deg, #f5edd6, #f5edd6 1px, #e5d8bc 1px, #e5d8bc 2px)", transform: "translateZ(-2px)", borderRadius: "0 4px 4px 0", boxShadow: "inset -10px 0 20px rgba(0,0,0,0.05)" }} />
                   </div>
@@ -402,6 +402,8 @@ export default function Book() {
                       zIndex: isLeftFolding ? 15 : 1,
                       transformOrigin: "right center",
                       transformStyle: "preserve-3d" as const,
+                      willChange: "transform",
+                      backfaceVisibility: "hidden",
                     }}
                     animate={
                       isLeftFolding
@@ -470,6 +472,8 @@ export default function Book() {
                       zIndex: isFolding && foldDirection === "next" ? 15 : 2,
                       transformOrigin: "left center",
                       transformStyle: "preserve-3d" as const,
+                      willChange: "transform",
+                      backfaceVisibility: "hidden",
                     }}
                     animate={
                       isFolding && foldDirection === "next"

@@ -86,7 +86,7 @@ export default function BookCover({ isOpen }: BookCoverProps) {
             borderRadius: "0 8px 8px 0",
           }}
         >
-           <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/leather.png')] pointer-events-none" />
+           <div className="absolute inset-0 opacity-20 bg-[url('/textures/leather.png')] pointer-events-none" />
            {/* Inner edge shadow */}
            <div className="absolute top-0 bottom-0 left-0 w-8 bg-gradient-to-r from-black/60 to-transparent pointer-events-none" />
         </div>

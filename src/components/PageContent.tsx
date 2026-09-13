@@ -25,6 +25,9 @@ interface PageContentProps {
   pageId: string;
 }
 
+// Memoization cache to prevent layout thrashing during 3D page flips and resizes
+const fontSizeCache = new Map<string, number>();
+
 export default function PageContent({
   initialContent,
   isEditing,
@@ -34,6 +37,7 @@ export default function PageContent({
 }: PageContentProps) {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pageIdRef = useRef(pageId);
+  pageIdRef.current = pageId;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const editorWrapRef = useRef<HTMLDivElement>(null);
   const [charCount, setCharCount] = useState(() => countChars(initialContent || ""));
@@ -44,15 +48,26 @@ export default function PageContent({
     if (!editorWrap) return;
     
     const rect = editorWrap.getBoundingClientRect();
-    const availW = rect.width;
-    const availH = rect.height;
+    const availW = Math.round(rect.width);
+    const availH = Math.round(rect.height);
     if (availW <= 0 || availH <= 0) return;
 
     const proseMirror = editorWrap.querySelector(".ProseMirror") as HTMLElement | null;
     if (!proseMirror) return;
 
+    // Check memoization cache first (instant O(1) during page turns with zero forced reflows)
+    const textLen = proseMirror.textContent?.length || 0;
+    const cacheKey = `${pageIdRef.current}_${textLen}_${availW}_${availH}`;
+    const cachedSize = fontSizeCache.get(cacheKey);
+    if (cachedSize !== undefined) {
+      proseMirror.style.fontSize = `${cachedSize}px`;
+      proseMirror.style.lineHeight = "1.7";
+      proseMirror.style.overflow = "hidden";
+      setFontSize(cachedSize);
+      return;
+    }
+
     // Scale font size proportionally to the diagonal of the page container
-    // diag * 0.035 gives ~19px on mobile and ~40px on huge 4K screens
     const diag = Math.sqrt(availW * availW + availH * availH);
     const maxFontSize = Math.max(14, diag * 0.035);
 
@@ -74,24 +89,20 @@ export default function PageContent({
     proseMirror.style.flex = "none";
     proseMirror.style.height = "auto";
     
-    // Make sure we caught proseMirror (in case it wasn't hidden in CSS for some reason)
     proseMirror.style.overflow = "visible";
     if (!ancestors.includes(proseMirror)) ancestors.push(proseMirror);
 
-    // Continuous binary search to find the exact boundary
+    // 8 iterations provide 0.125px sub-pixel precision while cutting reflows by 60%
     let lo = 8;
     let hi = maxFontSize;
     let best = 8;
-    
-    // 4px safety buffer against fractional pixel rendering causing clipping
     const targetH = availH - 4;
 
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 8; i++) {
       const mid = (lo + hi) / 2;
       proseMirror.style.fontSize = `${mid}px`;
       proseMirror.style.lineHeight = "1.7";
       
-      // Use getBoundingClientRect for sub-pixel precision instead of scrollHeight
       if (proseMirror.getBoundingClientRect().height <= targetH) {
         best = mid;
         lo = mid;
@@ -110,6 +121,7 @@ export default function PageContent({
 
     // Floor to 1 decimal place to guarantee it stays within bounds
     const finalSize = Math.floor(best * 10) / 10;
+    fontSizeCache.set(cacheKey, finalSize);
     proseMirror.style.fontSize = `${finalSize}px`;
     proseMirror.style.lineHeight = "1.7";
     proseMirror.style.overflow = "hidden";
@@ -123,9 +135,18 @@ export default function PageContent({
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
-    const ro = new ResizeObserver(() => fitText());
+    let rafId: number | null = null;
+    const ro = new ResizeObserver(() => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        fitText();
+      });
+    });
     ro.observe(wrapper);
-    return () => ro.disconnect();
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
   }, [fitText]);
 
   const editor = useEditor({
@@ -171,6 +192,12 @@ export default function PageContent({
         return;
       }
 
+      // Invalidate cache for this page on edit
+      for (const k of Array.from(fontSizeCache.keys())) {
+        if (k.startsWith(pageIdRef.current)) {
+          fontSizeCache.delete(k);
+        }
+      }
       requestAnimationFrame(() => fitText());
 
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
