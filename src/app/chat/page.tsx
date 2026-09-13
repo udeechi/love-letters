@@ -2312,19 +2312,17 @@ export default function ChatPage() {
                               className="w-full h-auto max-h-[300px] object-cover hover:opacity-90 transition-opacity"
                               loading="lazy"
                             />
-                            {isMe && (
-                              <div 
-                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveMessageId(isActive ? null : msg.id);
-                                }}
-                              >
-                                <div className="bg-black/60 rounded-full p-1.5 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors shadow-lg">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
-                                </div>
+                            <div 
+                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMessageId(isActive ? null : msg.id);
+                              }}
+                            >
+                              <div className="bg-black/60 rounded-full p-1.5 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors shadow-lg">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
                               </div>
-                            )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -2634,8 +2632,10 @@ export default function ChatPage() {
                         {customStickers.map((sticker) => (
                           <div key={sticker.id} className="relative group w-full pt-[100%] rounded-lg overflow-hidden bg-black/40 border border-white/5">
                             <button type="button" onClick={() => {
-                              const payload = { sender: username, createdAt: serverTimestamp(), attachmentUrl: sticker.url, attachmentType: 'sticker' };
+                              const payload: any = { sender: username, createdAt: serverTimestamp(), attachmentUrl: sticker.url, attachmentType: 'sticker' };
+                              if (replyingTo) payload.replyToId = replyingTo.id;
                               addDoc(collection(db, "messages"), payload);
+                              setReplyingTo(null);
                               setShowStickerPicker(false);
                               virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
                             }} className="absolute inset-0 w-full h-full hover:scale-105 transition-transform flex">
