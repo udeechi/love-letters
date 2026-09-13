@@ -265,14 +265,12 @@ export default function ChatPage() {
   const getVideoTransceiver = (pc: RTCPeerConnection | null): RTCRtpTransceiver | null => {
     if (!pc) return null;
     try {
-      return (
-        pc.getTransceivers().find(
-          (t) =>
-            t.receiver?.track?.kind === "video" ||
-            t.sender?.track?.kind === "video" ||
-            (t as any).mid === "video"
-        ) || null
+      const transceivers = pc.getTransceivers().filter(
+        (t) => t.receiver?.track?.kind === "video" || t.sender?.track?.kind === "video"
       );
+      if (transceivers.length === 0) return null;
+      // Prioritize transceiver with an assigned mid (actively negotiated in SDP)
+      return transceivers.find((t) => t.mid !== null && t.mid !== undefined) || transceivers[0];
     } catch {
       return null;
     }
@@ -546,9 +544,6 @@ export default function ChatPage() {
 
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-      // Add video transceiver so video can be streamed immediately in Direct mode without renegotiation
-      pc.addTransceiver("video", { direction: "sendrecv" });
-
       pc.ontrack = (event) => {
         if (event.track.kind === "audio") {
           if (remoteAudioRef.current && event.streams[0]) {
@@ -584,6 +579,14 @@ export default function ChatPage() {
 
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
       await flushPendingCandidates();
+
+      // Find the video transceiver created by the remote offer and ensure direction is sendrecv
+      const videoTransceiver = pc.getTransceivers().find(
+        (t) => t.receiver?.track?.kind === "video"
+      );
+      if (videoTransceiver) {
+        videoTransceiver.direction = "sendrecv";
+      }
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -1016,7 +1019,7 @@ export default function ChatPage() {
         const anyoneHasCamera = Object.values(videoUsers).some((v) => Boolean(v));
         const myCamOn = Boolean(username && videoUsers[username]);
         const partnerCamOn = Object.entries(videoUsers).some(
-          ([user, on]) => user !== username && Boolean(on)
+          ([user, on]) => user.toLowerCase().trim() !== username.toLowerCase().trim() && Boolean(on)
         );
         const mode = (data.videoMode as "direct" | "agora") || "direct";
 
@@ -1074,6 +1077,10 @@ export default function ChatPage() {
             if (partnerCamOn) {
               const remoteTrack = remoteVideoTrackRef.current || getRemoteVideoTrack(pcRef.current);
               if (remoteTrack) {
+                remoteVideoTrackRef.current = remoteTrack;
+                remoteTrack.onunmute = () => {
+                  setRemoteWebRtcStream(new MediaStream([remoteTrack]));
+                };
                 setRemoteWebRtcStream(new MediaStream([remoteTrack]));
               }
             } else {

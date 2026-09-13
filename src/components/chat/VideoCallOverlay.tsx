@@ -59,6 +59,8 @@ export default function VideoCallOverlay({
     localVideoElRef.current = node;
     if (node && localMediaStreamTrack) {
       node.muted = true;
+      node.setAttribute("playsinline", "true");
+      node.setAttribute("webkit-playsinline", "true");
       if (!node.srcObject || (node.srcObject as MediaStream).getTracks()[0] !== localMediaStreamTrack) {
         node.srcObject = new MediaStream([localMediaStreamTrack]);
       }
@@ -69,6 +71,9 @@ export default function VideoCallOverlay({
   const setRemoteVideoNode = (node: HTMLVideoElement | null) => {
     remoteVideoElRef.current = node;
     if (node && remoteWebRtcStream) {
+      node.muted = true;
+      node.setAttribute("playsinline", "true");
+      node.setAttribute("webkit-playsinline", "true");
       if (node.srcObject !== remoteWebRtcStream) {
         node.srcObject = remoteWebRtcStream;
       }
@@ -78,22 +83,29 @@ export default function VideoCallOverlay({
 
   // 1. Play WebRTC direct local video
   useEffect(() => {
-    if (localVideoElRef.current && localMediaStreamTrack) {
-      localVideoElRef.current.muted = true;
-      if (!localVideoElRef.current.srcObject || (localVideoElRef.current.srcObject as MediaStream).getTracks()[0] !== localMediaStreamTrack) {
-        localVideoElRef.current.srcObject = new MediaStream([localMediaStreamTrack]);
+    const el = localVideoElRef.current;
+    if (el && localMediaStreamTrack) {
+      el.muted = true;
+      el.setAttribute("playsinline", "true");
+      el.setAttribute("webkit-playsinline", "true");
+      if (!el.srcObject || (el.srcObject as MediaStream).getTracks()[0] !== localMediaStreamTrack) {
+        el.srcObject = new MediaStream([localMediaStreamTrack]);
       }
-      localVideoElRef.current.play().catch(() => {});
+      el.play().catch(() => {});
     }
   }, [localMediaStreamTrack, isCameraOn, isMinimized]);
 
   // 2. Play WebRTC direct remote video
   useEffect(() => {
-    if (remoteVideoElRef.current && remoteWebRtcStream) {
-      if (remoteVideoElRef.current.srcObject !== remoteWebRtcStream) {
-        remoteVideoElRef.current.srcObject = remoteWebRtcStream;
+    const el = remoteVideoElRef.current;
+    if (el && remoteWebRtcStream) {
+      el.muted = true;
+      el.setAttribute("playsinline", "true");
+      el.setAttribute("webkit-playsinline", "true");
+      if (el.srcObject !== remoteWebRtcStream) {
+        el.srcObject = remoteWebRtcStream;
       }
-      remoteVideoElRef.current.play().catch(() => {});
+      el.play().catch(() => {});
     }
   }, [remoteWebRtcStream, hasRemoteWebRtcVideo, isMinimized]);
 
@@ -143,6 +155,7 @@ export default function VideoCallOverlay({
                 ref={setRemoteVideoNode}
                 autoPlay
                 playsInline
+                muted
                 className="w-full h-full object-cover"
               />
             ) : hasRemoteAgoraVideo ? (
@@ -247,6 +260,7 @@ export default function VideoCallOverlay({
                 ref={setRemoteVideoNode}
                 autoPlay
                 playsInline
+                muted
                 className="w-full h-full object-cover"
               />
             )}
