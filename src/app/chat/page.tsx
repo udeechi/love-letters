@@ -210,6 +210,7 @@ export default function ChatPage() {
   const [customStickers, setCustomStickers] = useState<CustomSticker[]>([]);
   const stickerInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingSticker, setIsUploadingSticker] = useState(false);
+  const [pendingMedia, setPendingMedia] = useState<{ file: File; url: string; type: "image" | "video" | "audio" } | null>(null);
   const pickerRef = useRef<HTMLFormElement>(null);
   const isAtBottomRef = useRef(true);
   const prevMsgsLengthRef = useRef(0);
@@ -1389,14 +1390,18 @@ export default function ChatPage() {
     }, 2000);
   };
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMessage.trim()) return;
+  const handleSend = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newMessage.trim() && !pendingMedia) return;
     
     const text = newMessage;
+    const mediaToUpload = pendingMedia;
+    
     setNewMessage("");
+    setPendingMedia(null);
     // Force scroll down when you send a message
     virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
+    
     const payload: any = {
       text: text,
       sender: username,
@@ -1404,9 +1409,27 @@ export default function ChatPage() {
     };
     if (replyingTo) payload.replyToId = replyingTo.id;
 
+    if (mediaToUpload) {
+      setIsUploadingFile(true);
+      try {
+        const uploadData = await uploadToCloudinary(mediaToUpload.file);
+        if (uploadData) {
+          payload.attachmentUrl = uploadData.secure_url;
+          payload.attachmentType = mediaToUpload.type;
+        }
+      } catch (err) {
+        console.error("Upload error", err);
+        alert("Failed to upload attachment.");
+        setIsUploadingFile(false);
+        return; // Stop sending if upload failed
+      }
+      setIsUploadingFile(false);
+    }
+
     try {
       await addDoc(collection(db, "messages"), payload);
       setReplyingTo(null);
+      if (mediaToUpload) URL.revokeObjectURL(mediaToUpload.url);
       remove(ref(rtdb, `typing/${username}`)).catch(() => {});
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
@@ -1498,32 +1521,21 @@ export default function ChatPage() {
     }
   };
 
+  const processPendingFile = (file: File) => {
+    const isVideo = file.type.startsWith("video/");
+    const isAudio = file.type.startsWith("audio/") || file.type.includes("webm") || file.type.includes("ogg") || file.type.includes("mp4");
+    setPendingMedia({
+      file,
+      url: URL.createObjectURL(file),
+      type: isVideo ? "video" : isAudio ? "audio" : "image"
+    });
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setIsUploadingFile(true);
-    try {
-      const uploadData = await uploadToCloudinary(file);
-      if (uploadData) {
-        const isVideo = uploadData.resource_type === "video";
-        const payload: any = {
-          text: "", // Optional text, maybe future caption support
-          attachmentUrl: uploadData.secure_url,
-          attachmentType: isVideo ? "video" : "image",
-          sender: username,
-          createdAt: serverTimestamp(),
-        };
-        if (replyingTo) payload.replyToId = replyingTo.id;
-        await addDoc(collection(db, "messages"), payload);
-        setReplyingTo(null);
-      }
-    } catch (error) {
-      console.error("File upload error:", error);
-      alert("Failed to upload file.");
-    } finally {
-      setIsUploadingFile(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+    processPendingFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handlePaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -1535,31 +1547,24 @@ export default function ChatPage() {
         const file = item.getAsFile();
         if (file) {
           e.preventDefault();
-          setIsUploadingFile(true);
-          try {
-            const uploadData = await uploadToCloudinary(file);
-            if (uploadData) {
-              const isVideo = uploadData.resource_type === "video";
-              const payload: any = {
-                text: "", 
-                attachmentUrl: uploadData.secure_url,
-                attachmentType: isVideo ? "video" : "image",
-                sender: username,
-                createdAt: serverTimestamp(),
-              };
-              if (replyingTo) payload.replyToId = replyingTo.id;
-              await addDoc(collection(db, "messages"), payload);
-              setReplyingTo(null);
-            }
-          } catch (error) {
-            console.error("Paste upload error:", error);
-            alert("Failed to upload pasted file.");
-          } finally {
-            setIsUploadingFile(false);
-          }
+          processPendingFile(file);
           break;
         }
       }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
+      processPendingFile(file);
     }
   };
 
@@ -1651,38 +1656,12 @@ export default function ChatPage() {
         if (!cancel && audioChunksRef.current.length > 0) {
           const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
           const blob = new Blob(audioChunksRef.current, { type: mimeType });
-          await handleAudioUpload(blob);
+          const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
+          const file = new File([blob], `voice-message.${ext}`, { type: blob.type });
+          processPendingFile(file);
         }
       };
       mediaRecorderRef.current.stop();
-    }
-  };
-
-  const handleAudioUpload = async (blob: Blob) => {
-    setIsUploadingFile(true); // Re-use the global uploading indicator
-    try {
-      // Create a file object with correct extension for Cloudinary to properly infer format if needed
-      const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
-      const file = new File([blob], `voice-message.${ext}`, { type: blob.type });
-      
-      const uploadData = await uploadToCloudinary(file);
-      if (uploadData) {
-        const payload: any = {
-          text: "", 
-          attachmentUrl: uploadData.secure_url,
-          attachmentType: "audio",
-          sender: username,
-          createdAt: serverTimestamp(),
-        };
-        if (replyingTo) payload.replyToId = replyingTo.id;
-        await addDoc(collection(db, "messages"), payload);
-        setReplyingTo(null);
-      }
-    } catch (error) {
-      console.error("Audio upload error:", error);
-      alert("Failed to upload voice message.");
-    } finally {
-      setIsUploadingFile(false);
     }
   };
 
@@ -2551,7 +2530,7 @@ export default function ChatPage() {
 
 
       <motion.footer initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="flex-none p-4 sm:p-6 border-t border-[#d4af37]/20 bg-black/40 backdrop-blur-md z-10">
-        <div className="max-w-3xl mx-auto relative">
+        <div className="max-w-3xl mx-auto relative" onDragOver={handleDragOver} onDrop={handleDrop}>
           <AnimatePresence>
             {replyingTo && (
               <motion.div
@@ -2565,6 +2544,37 @@ export default function ChatPage() {
                   <span className="text-xs text-white/60 truncate">{replyingTo.text || (replyingTo.attachmentType ? `[${replyingTo.attachmentType}]` : "...")}</span>
                 </div>
                 <button type="button" onClick={() => setReplyingTo(null)} className="text-white/40 hover:text-white/80 transition-colors bg-white/5 hover:bg-white/10 rounded-full p-1.5 flex-none">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </motion.div>
+            )}
+            
+            {pendingMedia && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: 10, height: 0 }}
+                className="mb-3 p-3 bg-black/60 border border-[#d4af37]/30 rounded-xl relative overflow-hidden flex items-center shadow-lg"
+              >
+                <div className="w-16 h-16 bg-black/40 rounded overflow-hidden mr-4 flex-none flex items-center justify-center border border-white/5">
+                  {pendingMedia.type === "image" && (
+                    <img src={pendingMedia.url} className="w-full h-full object-cover" alt="Preview" />
+                  )}
+                  {pendingMedia.type === "video" && (
+                    <video src={pendingMedia.url} className="w-full h-full object-cover" />
+                  )}
+                  {pendingMedia.type === "audio" && (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-400"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 pr-4">
+                  {pendingMedia.type === "audio" ? (
+                    <audio src={pendingMedia.url} controls className="w-full h-8" />
+                  ) : (
+                    <span className="text-sm text-[#d4af37] truncate block">{pendingMedia.file.name}</span>
+                  )}
+                </div>
+                <button type="button" onClick={() => { URL.revokeObjectURL(pendingMedia.url); setPendingMedia(null); }} className="text-white/40 hover:text-white/80 transition-colors bg-white/5 hover:bg-white/10 rounded-full p-1.5 flex-none">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
               </motion.div>
@@ -2604,7 +2614,7 @@ export default function ChatPage() {
                   onClick={() => stopRecording(false)} 
                   className="px-4 py-1.5 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/40 border border-red-500/30 transition-colors text-xs tracking-widest uppercase"
                 >
-                  Send
+                  Done
                 </motion.button>
               </div>
             </motion.div>
@@ -2712,7 +2722,7 @@ export default function ChatPage() {
               
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                 type="submit"
-                disabled={!newMessage.trim()}
+                disabled={!newMessage.trim() && !pendingMedia}
                 className="w-12 h-12 flex-none flex items-center justify-center bg-[#d4af37]/20 text-[#d4af37] rounded-full border border-[#d4af37]/40 hover:bg-[#d4af37]/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-[-2px] mt-[2px]">
