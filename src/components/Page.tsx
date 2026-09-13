@@ -11,6 +11,7 @@ interface PageProps {
   onSaveContent: (content: string) => void;
   onSaveImages: (images: PageImage[]) => void;
   textColor: string;
+  disableMountAnimation?: boolean;
 }
 
 export default function BookPage({
@@ -19,6 +20,7 @@ export default function BookPage({
   onSaveContent,
   onSaveImages,
   textColor,
+  disableMountAnimation = false,
 }: PageProps) {
   return (
     <motion.div
@@ -26,9 +28,9 @@ export default function BookPage({
       style={{
         borderRadius: "inherit",
       }}
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={disableMountAnimation ? false : { opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+      exit={disableMountAnimation ? undefined : { opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
     >
       <div className="h-full flex flex-col py-3 px-4 sm:px-6 relative">

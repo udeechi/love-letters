@@ -38,9 +38,7 @@ export default function Book() {
   } = useNotebook();
 
   const [phase, setPhase] = useState<Phase>("locked");
-  const [isFolding, setIsFolding] = useState(false);
-  const [isLeftFolding, setIsLeftFolding] = useState(false);
-  const [foldDirection, setFoldDirection] = useState<"next" | "prev" | null>(null);
+  const [flipDirection, setFlipDirection] = useState<"next" | "prev" | null>(null);
   const [textColor, setTextColor] = useState("#000000");
   const [mobilePageIndex, setMobilePageIndex] = useState(0);
   const isMobile = useIsMobile();
@@ -48,6 +46,15 @@ export default function Book() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [choosingTarget, setChoosingTarget] = useState(false);
   const [mediaTarget, setMediaTarget] = useState<NotebookPage | null>(null);
+  const [choosingDeleteTarget, setChoosingDeleteTarget] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<NotebookPage | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletingPage, setIsDeletingPage] = useState(false);
+
+  const nextSpreadLeftPage = pages[(currentSpread + 1) * 2] || null;
+  const nextSpreadRightPage = pages[(currentSpread + 1) * 2 + 1] || null;
+  const prevSpreadLeftPage = currentSpread > 0 ? pages[(currentSpread - 1) * 2] || null : null;
+  const prevSpreadRightPage = currentSpread > 0 ? pages[(currentSpread - 1) * 2 + 1] || null : null;
 
   useEffect(() => {
     if (!isLocked && isInitialized) fetchPages();
@@ -63,8 +70,6 @@ export default function Book() {
       if (si < pages.length) setMobilePageIndex(si);
     }
   }, [isMobile, currentSpread, pages.length]);
-
-
 
   const handleCoverClick = useCallback(() => {
     if (phase !== "cover") return;
@@ -88,55 +93,49 @@ export default function Book() {
   }, [mobilePageIndex]);
 
   const handleNext = useCallback(() => {
-    if (isFolding || phase !== "open") return;
+    if (flipDirection !== null || phase !== "open") return;
     if (isMobile) return handleMobileNext();
-    setIsFolding(true);
-    setFoldDirection("next");
-  }, [isFolding, phase, isMobile, handleMobileNext]);
+    if (currentSpread < totalSpreads - 1) {
+      setFlipDirection("next");
+    }
+  }, [flipDirection, phase, isMobile, handleMobileNext, currentSpread, totalSpreads]);
 
   const handlePrev = useCallback(() => {
-    if (isFolding || phase !== "open") return;
+    if (flipDirection !== null || phase !== "open") return;
     if (isMobile) return handleMobilePrev();
-    setIsFolding(true);
-    setFoldDirection("prev");
-  }, [isFolding, phase, isMobile, handleMobilePrev]);
+    if (currentSpread > 0) {
+      setFlipDirection("prev");
+    }
+  }, [flipDirection, phase, isMobile, handleMobilePrev, currentSpread]);
 
   const handleJumpToPage = useCallback((pageIndex: number) => {
-    if (pageIndex < 0 || pageIndex >= pages.length) return;
+    if (pageIndex < 0 || pageIndex >= pages.length || flipDirection !== null) return;
     if (isMobile) {
       setMobilePageIndex(pageIndex);
     } else {
       const targetSpread = Math.floor(pageIndex / 2);
       setCurrentSpread(targetSpread);
     }
-  }, [isMobile, pages.length, setCurrentSpread]);
+  }, [isMobile, pages.length, setCurrentSpread, flipDirection]);
 
-  const handleFoldComplete = useCallback(() => {
-    if (foldDirection === "next") nextSpread();
-    else if (foldDirection === "prev") prevSpread();
-    setIsFolding(false);
-    setFoldDirection(null);
-  }, [foldDirection, nextSpread, prevSpread]);
-
-  const handleLeftFoldComplete = useCallback(() => {
-    prevSpread();
-    setIsLeftFolding(false);
-  }, [prevSpread]);
+  const handleFlipComplete = useCallback(() => {
+    if (flipDirection === "next") {
+      nextSpread();
+    } else if (flipDirection === "prev") {
+      prevSpread();
+    }
+    setFlipDirection(null);
+  }, [flipDirection, nextSpread, prevSpread]);
 
   const handleChooseLeft = useCallback(() => {
-    if (isEditing) return;
-    if (!isLeftFolding && !isFolding && phase === "open" && currentSpread > 0) {
-      setIsLeftFolding(true);
-    }
-  }, [isLeftFolding, isFolding, phase, currentSpread, isEditing]);
+    if (isEditing || choosingTarget || choosingDeleteTarget) return;
+    handlePrev();
+  }, [isEditing, choosingTarget, choosingDeleteTarget, handlePrev]);
 
   const handleChooseRight = useCallback(() => {
-    if (isEditing) return;
-    if (!isFolding && !isLeftFolding && phase === "open" && currentSpread < totalSpreads - 1) {
-      setIsFolding(true);
-      setFoldDirection("next");
-    }
-  }, [isFolding, isLeftFolding, phase, currentSpread, totalSpreads, isEditing]);
+    if (isEditing || choosingTarget || choosingDeleteTarget) return;
+    handleNext();
+  }, [isEditing, choosingTarget, choosingDeleteTarget, handleNext]);
 
   const handleSaveContent = useCallback((c: string) => { if (leftPage) updatePage(leftPage.id, { content: c }); }, [leftPage, updatePage]);
   const handleSaveRightContent = useCallback((c: string) => { if (rightPage) updatePage(rightPage.id, { content: c }); }, [rightPage, updatePage]);
@@ -144,10 +143,43 @@ export default function Book() {
   const handleSaveImages = useCallback((imgs: PageImage[]) => { if (leftPage) updatePage(leftPage.id, { images: imgs }); }, [leftPage, updatePage]);
   const handleSaveRightImages = useCallback((imgs: PageImage[]) => { if (rightPage) updatePage(rightPage.id, { images: imgs }); }, [rightPage, updatePage]);
   const handleSaveMobileImages = useCallback((imgs: PageImage[]) => { if (mobilePage) updatePage(mobilePage.id, { images: imgs }); }, [mobilePage, updatePage]);
-  const [choosingDeleteTarget, setChoosingDeleteTarget] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<NotebookPage | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isDeletingPage, setIsDeletingPage] = useState(false);
+
+  const renderSpreadPage = useCallback(
+    (
+      page: NotebookPage | null,
+      side: "left" | "right",
+      options?: {
+        onSaveContent?: (c: string) => void;
+        onSaveImages?: (imgs: PageImage[]) => void;
+        isInteractive?: boolean;
+        disableMountAnimation?: boolean;
+      }
+    ) => {
+      const isInteractive = options?.isInteractive ?? true;
+      const disableMount = options?.disableMountAnimation ?? true;
+
+      return (
+        <div className={`w-full h-full page-surface ${side === "left" ? "page-shadow-left" : "page-shadow-right"} relative`}>
+          {isLoadingPages ? (
+            <LoadingIndicator />
+          ) : page ? (
+            <BookPage
+              key={page.id}
+              page={page}
+              isEditing={isInteractive ? isEditing : false}
+              onSaveContent={options?.onSaveContent || (() => {})}
+              onSaveImages={options?.onSaveImages || (() => {})}
+              textColor={textColor}
+              disableMountAnimation={disableMount}
+            />
+          ) : (
+            <EmptyPageHint onCreate={side === "left" && isInteractive ? createPage : undefined} />
+          )}
+        </div>
+      );
+    },
+    [isLoadingPages, isEditing, textColor, createPage]
+  );
 
   const handlePromptDelete = () => {
     if (pages.length <= 1) return;
@@ -388,6 +420,14 @@ export default function Book() {
               {/* DESKTOP/TABLET: spread view */}
               {!isMobile && showPages && (
                 <>
+                  {/* LEFT BACK COVER & PAPER EDGES */}
+                  <div className="absolute inset-0 w-1/2 left-0 pointer-events-none" style={{ zIndex: 0, transformStyle: "preserve-3d" }}>
+                    <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #4a1028 0%, #3d1528 60%, #2d0a1b 100%)", borderRadius: "8px 0 0 8px", transform: "translateZ(-4px)", boxShadow: "-20px 20px 40px rgba(0,0,0,0.6)" }}>
+                      <div className="absolute inset-0 opacity-20 bg-[url('/textures/leather.png')] rounded-[inherit]" />
+                    </div>
+                    <div className="absolute top-1 bottom-1 left-1 right-0" style={{ background: "repeating-linear-gradient(90deg, #e5d8bc, #e5d8bc 1px, #f5edd6 1px, #f5edd6 2px)", transform: "translateZ(-2px)", borderRadius: "4px 0 0 4px", boxShadow: "inset 10px 0 20px rgba(0,0,0,0.05)" }} />
+                  </div>
+
                   {/* RIGHT BACK COVER & PAPER EDGES */}
                   <div className="absolute inset-0 w-1/2 left-1/2 pointer-events-none" style={{ zIndex: 0, transformStyle: "preserve-3d" }}>
                     <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #2d0a1b 0%, #3d1528 40%, #4a1028 100%)", borderRadius: "0 8px 8px 0", transform: "translateZ(-4px)", boxShadow: "20px 20px 40px rgba(0,0,0,0.6)" }}>
@@ -396,36 +436,25 @@ export default function Book() {
                     <div className="absolute top-1 bottom-1 right-1 left-0" style={{ background: "repeating-linear-gradient(90deg, #f5edd6, #f5edd6 1px, #e5d8bc 1px, #e5d8bc 2px)", transform: "translateZ(-2px)", borderRadius: "0 4px 4px 0", boxShadow: "inset -10px 0 20px rgba(0,0,0,0.05)" }} />
                   </div>
 
-                  <motion.div
+                  {/* LEFT PAGE CONTAINER (Static / Under-Page) */}
+                  <div
                     className="absolute top-0 bottom-0 left-0 w-1/2 overflow-hidden"
                     style={{
-                      zIndex: isLeftFolding ? 15 : 1,
-                      transformOrigin: "right center",
-                      transformStyle: "preserve-3d" as const,
-                      willChange: "transform",
-                      backfaceVisibility: "hidden",
+                      zIndex: flipDirection === "prev" ? 1 : 2,
+                      cursor: !isEditing && currentSpread > 0 && flipDirection === null ? "pointer" : "default",
                     }}
-                    animate={
-                      isLeftFolding
-                        ? { rotateY: [0, 180] }
-                        : { rotateY: 0 }
-                    }
-                    transition={{ duration: 0.7, ease: [0.645, 0.045, 0.355, 1] }}
-                    onAnimationComplete={handleLeftFoldComplete}
-                    onClick={handleChooseLeft}
+                    onClick={flipDirection === null ? handleChooseLeft : undefined}
                   >
-                    <div className="w-full h-full page-surface page-shadow-left">
-                      {isLoadingPages ? (
-                        <LoadingIndicator />
-                      ) : leftPage ? (
-                        <AnimatePresence mode="wait">
-                          <BookPage key={leftPage.id} page={leftPage} isEditing={isEditing} onSaveContent={handleSaveContent} onSaveImages={handleSaveImages} textColor={textColor} />
-                        </AnimatePresence>
-                      ) : (
-                        <EmptyPageHint onCreate={createPage} />
-                      )}
-                    </div>
-                    {choosingTarget && leftPage && (
+                    {flipDirection === "prev"
+                      ? renderSpreadPage(prevSpreadLeftPage, "left", { isInteractive: false })
+                      : renderSpreadPage(leftPage, "left", {
+                          onSaveContent: handleSaveContent,
+                          onSaveImages: handleSaveImages,
+                          isInteractive: flipDirection === null,
+                        })}
+
+                    {/* Target Selection Modals */}
+                    {choosingTarget && leftPage && flipDirection === null && (
                       <div
                         className="absolute inset-0 flex items-center justify-center cursor-pointer"
                         style={{ zIndex: 25 }}
@@ -439,7 +468,7 @@ export default function Book() {
                         </div>
                       </div>
                     )}
-                    {choosingDeleteTarget && leftPage && (
+                    {choosingDeleteTarget && leftPage && flipDirection === null && (
                       <div
                         className="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/20 backdrop-blur-[2px]"
                         style={{ zIndex: 25 }}
@@ -453,69 +482,53 @@ export default function Book() {
                         </div>
                       </div>
                     )}
-                    {isLeftFolding && (
+
+                    {/* Landing Shadow on Left (when Next leaf flips over and lands) */}
+                    {flipDirection === "next" && (
                       <motion.div
                         className="absolute inset-0 pointer-events-none"
                         style={{
-                          background: "linear-gradient(to left, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 80%, rgba(0,0,0,0.3) 100%)",
+                          background: "linear-gradient(to right, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.12) 60%, transparent 100%)",
                         }}
                         initial={{ opacity: 0 }}
-                        animate={{ opacity: [0, 1, 0] }}
-                        transition={{ duration: 0.7, ease: "easeInOut" }}
+                        animate={{ opacity: [0, 0, 0.45, 0.2, 0] }}
+                        transition={{ duration: 0.85, times: [0, 0.45, 0.75, 0.9, 1], ease: "easeInOut" }}
                       />
                     )}
-                  </motion.div>
 
-                  <motion.div
+                    {/* Under-Leaf Shadow on Left (when Prev leaf lifts away) */}
+                    {flipDirection === "prev" && (
+                      <motion.div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                          background: "linear-gradient(to left, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.12) 35%, transparent 75%)",
+                        }}
+                        initial={{ opacity: 0.5 }}
+                        animate={{ opacity: [0.5, 0.35, 0.1, 0, 0] }}
+                        transition={{ duration: 0.85, times: [0, 0.3, 0.5, 0.8, 1], ease: "easeOut" }}
+                      />
+                    )}
+                  </div>
+
+                  {/* RIGHT PAGE CONTAINER (Static / Under-Page) */}
+                  <div
                     className="absolute top-0 bottom-0 right-0 w-1/2 overflow-hidden"
                     style={{
-                      zIndex: isFolding && foldDirection === "next" ? 15 : 2,
-                      transformOrigin: "left center",
-                      transformStyle: "preserve-3d" as const,
-                      willChange: "transform",
-                      backfaceVisibility: "hidden",
+                      zIndex: flipDirection === "next" ? 1 : 2,
+                      cursor: !isEditing && currentSpread < totalSpreads - 1 && flipDirection === null ? "pointer" : "default",
                     }}
-                    animate={
-                      isFolding && foldDirection === "next"
-                        ? { rotateY: [0, -180] }
-                        : isFolding && foldDirection === "prev"
-                        ? { rotateY: [-180, 0] }
-                        : { rotateY: 0 }
-                    }
-                    transition={{ duration: 0.7, ease: [0.645, 0.045, 0.355, 1] }}
-                    onAnimationComplete={handleFoldComplete}
-                    onClick={handleChooseRight}
+                    onClick={flipDirection === null ? handleChooseRight : undefined}
                   >
-                    <div
-                      className="w-full h-full page-surface page-shadow-right relative"
-                      style={{ backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
-                    >
-                      {isLoadingPages ? (
-                        <LoadingIndicator />
-                      ) : rightPage ? (
-                        <AnimatePresence mode="wait">
-                          <BookPage key={rightPage.id} page={rightPage} isEditing={isEditing} onSaveContent={handleSaveRightContent} onSaveImages={handleSaveRightImages} textColor={textColor} />
-                        </AnimatePresence>
-                      ) : (
-                        <EmptyPageHint />
-                      )}
-                      
-                      {/* Dynamic Flip Shadow */}
-                      {isFolding && (
-                        <motion.div
-                          className="absolute inset-0 pointer-events-none"
-                          style={{
-                            background: foldDirection === "next" 
-                              ? "linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 80%, rgba(0,0,0,0.3) 100%)"
-                              : "linear-gradient(to left, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 80%, rgba(0,0,0,0.3) 100%)",
-                          }}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: [0, 1, 0] }}
-                          transition={{ duration: 0.7, ease: "easeInOut" }}
-                        />
-                      )}
-                    </div>
-                    {choosingTarget && rightPage && (
+                    {flipDirection === "next"
+                      ? renderSpreadPage(nextSpreadRightPage, "right", { isInteractive: false })
+                      : renderSpreadPage(rightPage, "right", {
+                          onSaveContent: handleSaveRightContent,
+                          onSaveImages: handleSaveRightImages,
+                          isInteractive: flipDirection === null,
+                        })}
+
+                    {/* Target Selection Modals */}
+                    {choosingTarget && rightPage && flipDirection === null && (
                       <div
                         className="absolute inset-0 flex items-center justify-center cursor-pointer"
                         style={{ zIndex: 25 }}
@@ -529,7 +542,7 @@ export default function Book() {
                         </div>
                       </div>
                     )}
-                    {choosingDeleteTarget && rightPage && (
+                    {choosingDeleteTarget && rightPage && flipDirection === null && (
                       <div
                         className="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/20 backdrop-blur-[2px]"
                         style={{ zIndex: 25 }}
@@ -543,7 +556,213 @@ export default function Book() {
                         </div>
                       </div>
                     )}
-                  </motion.div>
+
+                    {/* Landing Shadow on Right (when Prev leaf flips over and lands) */}
+                    {flipDirection === "prev" && (
+                      <motion.div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                          background: "linear-gradient(to left, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.12) 60%, transparent 100%)",
+                        }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: [0, 0, 0.45, 0.2, 0] }}
+                        transition={{ duration: 0.85, times: [0, 0.45, 0.75, 0.9, 1], ease: "easeInOut" }}
+                      />
+                    )}
+
+                    {/* Under-Leaf Shadow on Right (when Next leaf lifts away) */}
+                    {flipDirection === "next" && (
+                      <motion.div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                          background: "linear-gradient(to right, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.12) 35%, transparent 75%)",
+                        }}
+                        initial={{ opacity: 0.5 }}
+                        animate={{ opacity: [0.5, 0.35, 0.1, 0, 0] }}
+                        transition={{ duration: 0.85, times: [0, 0.3, 0.5, 0.8, 1], ease: "easeOut" }}
+                      />
+                    )}
+                  </div>
+
+                  {/* 3D DUAL-SIDED TURNING LEAF: FORWARD (Right to Left) */}
+                  {flipDirection === "next" && (
+                    <motion.div
+                      key={`turning-leaf-next-${currentSpread}`}
+                      className="absolute top-0 bottom-0 right-0 w-1/2 pointer-events-none"
+                      style={{
+                        transformOrigin: "left center",
+                        transformStyle: "preserve-3d",
+                        zIndex: 30,
+                        willChange: "transform",
+                      }}
+                      initial={{ rotateY: 0, z: 0, scaleX: 1, rotateZ: 0, skewY: 0 }}
+                      animate={{
+                        rotateY: [0, -42, -90, -138, -180],
+                        z: [0, 24, 38, 20, 0],
+                        scaleX: [1, 0.96, 0.93, 0.96, 1],
+                        rotateZ: [0, -1.8, -3.2, -1.5, 0],
+                        skewY: [0, 1.2, 0, -1.2, 0],
+                      }}
+                      transition={{ duration: 0.85, ease: [0.45, 0.05, 0.25, 1] }}
+                      onAnimationComplete={handleFlipComplete}
+                    >
+                      {/* FRONT FACE (Current Right Page) */}
+                      <div
+                        className="absolute inset-0 overflow-hidden"
+                        style={{
+                          backfaceVisibility: "hidden",
+                          WebkitBackfaceVisibility: "hidden",
+                          transform: "rotateY(0deg)",
+                          transformStyle: "preserve-3d",
+                        }}
+                      >
+                        {renderSpreadPage(rightPage, "right", { isInteractive: false })}
+                        {/* Dynamic Travelling Specular Sheen */}
+                        <motion.div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: "linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.22) 45%, rgba(255,255,255,0.38) 52%, transparent 65%)",
+                          }}
+                          initial={{ opacity: 0, x: "-30%" }}
+                          animate={{ opacity: [0, 0.75, 0], x: ["-30%", "20%", "80%"] }}
+                          transition={{ duration: 0.55, ease: "easeInOut" }}
+                        />
+                        {/* Lift Shading as page turns away from light */}
+                        <motion.div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: "linear-gradient(to right, transparent 40%, rgba(0,0,0,0.12) 80%, rgba(0,0,0,0.28) 100%)",
+                          }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: [0, 0.35, 0.7, 0] }}
+                          transition={{ duration: 0.45, times: [0, 0.5, 0.9, 1], ease: "easeIn" }}
+                        />
+                      </div>
+
+                      {/* BACK FACE (Next Left Page) */}
+                      <div
+                        className="absolute inset-0 overflow-hidden"
+                        style={{
+                          backfaceVisibility: "hidden",
+                          WebkitBackfaceVisibility: "hidden",
+                          transform: "rotateY(180deg)",
+                          transformStyle: "preserve-3d",
+                        }}
+                      >
+                        {renderSpreadPage(nextSpreadLeftPage, "left", { isInteractive: false })}
+                        {/* Specular Sheen on entering and landing */}
+                        <motion.div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: "linear-gradient(255deg, transparent 20%, rgba(255,255,255,0.22) 45%, rgba(255,255,255,0.38) 52%, transparent 65%)",
+                          }}
+                          initial={{ opacity: 0, x: "60%" }}
+                          animate={{ opacity: [0, 0.75, 0], x: ["60%", "60%", "10%", "-40%"] }}
+                          transition={{ duration: 0.85, times: [0, 0.45, 0.75, 1], ease: "easeOut" }}
+                        />
+                        {/* Landing Shade smoothing into flat spread */}
+                        <motion.div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: "linear-gradient(to left, transparent 40%, rgba(0,0,0,0.15) 80%, rgba(0,0,0,0.28) 100%)",
+                          }}
+                          initial={{ opacity: 0.65 }}
+                          animate={{ opacity: [0.65, 0.35, 0.1, 0] }}
+                          transition={{ duration: 0.45, delay: 0.4, ease: "easeOut" }}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* 3D DUAL-SIDED TURNING LEAF: BACKWARD (Left to Right) */}
+                  {flipDirection === "prev" && (
+                    <motion.div
+                      key={`turning-leaf-prev-${currentSpread}`}
+                      className="absolute top-0 bottom-0 left-0 w-1/2 pointer-events-none"
+                      style={{
+                        transformOrigin: "right center",
+                        transformStyle: "preserve-3d",
+                        zIndex: 30,
+                        willChange: "transform",
+                      }}
+                      initial={{ rotateY: 0, z: 0, scaleX: 1, rotateZ: 0, skewY: 0 }}
+                      animate={{
+                        rotateY: [0, 42, 90, 138, 180],
+                        z: [0, 24, 38, 20, 0],
+                        scaleX: [1, 0.96, 0.93, 0.96, 1],
+                        rotateZ: [0, 1.8, 3.2, 1.5, 0],
+                        skewY: [0, -1.2, 0, 1.2, 0],
+                      }}
+                      transition={{ duration: 0.85, ease: [0.45, 0.05, 0.25, 1] }}
+                      onAnimationComplete={handleFlipComplete}
+                    >
+                      {/* FRONT FACE (Current Left Page) */}
+                      <div
+                        className="absolute inset-0 overflow-hidden"
+                        style={{
+                          backfaceVisibility: "hidden",
+                          WebkitBackfaceVisibility: "hidden",
+                          transform: "rotateY(0deg)",
+                          transformStyle: "preserve-3d",
+                        }}
+                      >
+                        {renderSpreadPage(leftPage, "left", { isInteractive: false })}
+                        {/* Travelling Specular Sheen */}
+                        <motion.div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: "linear-gradient(75deg, transparent 20%, rgba(255,255,255,0.22) 45%, rgba(255,255,255,0.38) 52%, transparent 65%)",
+                          }}
+                          initial={{ opacity: 0, x: "30%" }}
+                          animate={{ opacity: [0, 0.75, 0], x: ["30%", "-20%", "-80%"] }}
+                          transition={{ duration: 0.55, ease: "easeInOut" }}
+                        />
+                        {/* Lift Shading as page turns away */}
+                        <motion.div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: "linear-gradient(to left, transparent 40%, rgba(0,0,0,0.12) 80%, rgba(0,0,0,0.28) 100%)",
+                          }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: [0, 0.35, 0.7, 0] }}
+                          transition={{ duration: 0.45, times: [0, 0.5, 0.9, 1], ease: "easeIn" }}
+                        />
+                      </div>
+
+                      {/* BACK FACE (Prev Right Page) */}
+                      <div
+                        className="absolute inset-0 overflow-hidden"
+                        style={{
+                          backfaceVisibility: "hidden",
+                          WebkitBackfaceVisibility: "hidden",
+                          transform: "rotateY(180deg)",
+                          transformStyle: "preserve-3d",
+                        }}
+                      >
+                        {renderSpreadPage(prevSpreadRightPage, "right", { isInteractive: false })}
+                        {/* Specular Sheen on landing */}
+                        <motion.div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: "linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.22) 45%, rgba(255,255,255,0.38) 52%, transparent 65%)",
+                          }}
+                          initial={{ opacity: 0, x: "-60%" }}
+                          animate={{ opacity: [0, 0.75, 0], x: ["-60%", "-60%", "-10%", "40%"] }}
+                          transition={{ duration: 0.85, times: [0, 0.45, 0.75, 1], ease: "easeOut" }}
+                        />
+                        {/* Landing Shade */}
+                        <motion.div
+                          className="absolute inset-0 pointer-events-none"
+                          style={{
+                            background: "linear-gradient(to right, transparent 40%, rgba(0,0,0,0.15) 80%, rgba(0,0,0,0.28) 100%)",
+                          }}
+                          initial={{ opacity: 0.65 }}
+                          animate={{ opacity: [0.65, 0.35, 0.1, 0] }}
+                          transition={{ duration: 0.45, delay: 0.4, ease: "easeOut" }}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
                 </>
               )}
 

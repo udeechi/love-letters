@@ -47,9 +47,8 @@ export default function PageContent({
     const editorWrap = editorWrapRef.current;
     if (!editorWrap) return;
     
-    const rect = editorWrap.getBoundingClientRect();
-    const availW = Math.round(rect.width);
-    const availH = Math.round(rect.height);
+    const availW = editorWrap.clientWidth || Math.round(editorWrap.getBoundingClientRect().width);
+    const availH = editorWrap.clientHeight || Math.round(editorWrap.getBoundingClientRect().height);
     if (availW <= 0 || availH <= 0) return;
 
     const proseMirror = editorWrap.querySelector(".ProseMirror") as HTMLElement | null;
@@ -103,7 +102,7 @@ export default function PageContent({
       proseMirror.style.fontSize = `${mid}px`;
       proseMirror.style.lineHeight = "1.7";
       
-      if (proseMirror.getBoundingClientRect().height <= targetH) {
+      if (proseMirror.scrollHeight <= targetH) {
         best = mid;
         lo = mid;
       } else {
