@@ -244,6 +244,11 @@ export default function ChatPage() {
   isCallMutedRef.current = isCallMuted;
 
   const [isPartnerCameraOn, setIsPartnerCameraOn] = useState(false);
+  const [isPartnerMuted, setIsPartnerMuted] = useState(false);
+  const [isCallReconnecting, setIsCallReconnecting] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<"user" | "environment">("user");
+  const cameraFacingModeRef = useRef<"user" | "environment">("user");
+  cameraFacingModeRef.current = cameraFacingMode;
   const [videoRoute, setVideoRoute] = useState<"direct" | "agora">("direct");
   const videoRouteRef = useRef<"direct" | "agora">("direct");
   videoRouteRef.current = videoRoute;
@@ -376,6 +381,10 @@ export default function ChatPage() {
     setIsVideoActive(false);
     setIsCameraOn(false);
     setIsPartnerCameraOn(false);
+    setIsPartnerMuted(false);
+    setIsCallReconnecting(false);
+    setCameraFacingMode("user");
+    cameraFacingModeRef.current = "user";
     remoteVideoTrackRef.current = null;
     if (localMediaStreamTrackRef.current) {
       localMediaStreamTrackRef.current.stop();
@@ -478,7 +487,13 @@ export default function ChatPage() {
       };
 
       pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "failed") {
+        const state = pc.iceConnectionState;
+        if (state === "disconnected" || state === "checking") {
+          setIsCallReconnecting(true);
+        } else if (state === "connected" || state === "completed") {
+          setIsCallReconnecting(false);
+        }
+        if (state === "failed") {
           try { pc.restartIce(); } catch {}
         }
       };
@@ -572,7 +587,13 @@ export default function ChatPage() {
       };
 
       pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "failed") {
+        const state = pc.iceConnectionState;
+        if (state === "disconnected" || state === "checking") {
+          setIsCallReconnecting(true);
+        } else if (state === "connected" || state === "completed") {
+          setIsCallReconnecting(false);
+        }
+        if (state === "failed") {
           try { pc.restartIce(); } catch {}
         }
       };
@@ -645,6 +666,12 @@ export default function ChatPage() {
 
     if (agoraManagerRef.current) {
       agoraManagerRef.current.setAudioMuted(nextMuted);
+    }
+
+    if (username) {
+      update(ref(rtdb, "call/session"), {
+        [`mutedUsers/${username}`]: nextMuted,
+      }).catch(() => {});
     }
   };
 
@@ -775,6 +802,62 @@ export default function ChatPage() {
       await update(ref(rtdb, "call/session"), {
         [`videoUsers/${username}`]: false,
       });
+    }
+  };
+
+  const handleFlipCamera = async () => {
+    if (!username || callState !== "connected" || !isCameraOn) return;
+    const nextMode = cameraFacingModeRef.current === "user" ? "environment" : "user";
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: { ideal: nextMode },
+        },
+      });
+      const newVideoTrack = stream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+
+      if (localMediaStreamTrackRef.current) {
+        localMediaStreamTrackRef.current.stop();
+      }
+      localMediaStreamTrackRef.current = newVideoTrack;
+      setLocalMediaStreamTrack(newVideoTrack);
+      setCameraFacingMode(nextMode);
+      cameraFacingModeRef.current = nextMode;
+
+      const mode = videoRouteRef.current;
+      if (mode === "direct") {
+        const pc = pcRef.current;
+        if (pc) {
+          const vt = getVideoTransceiver(pc);
+          if (vt && vt.sender) {
+            await vt.sender.replaceTrack(newVideoTrack);
+          } else {
+            const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+            if (sender) {
+              await sender.replaceTrack(newVideoTrack);
+            }
+          }
+        }
+      } else {
+        const AgoraRTC = await getAgoraRTC();
+        if (localAgoraVideoTrackRef.current) {
+          localAgoraVideoTrackRef.current.stop();
+          localAgoraVideoTrackRef.current.close();
+        }
+        const agoraTrack = AgoraRTC.createCustomVideoTrack({
+          mediaStreamTrack: newVideoTrack,
+        });
+        localAgoraVideoTrackRef.current = agoraTrack;
+        setLocalAgoraVideoTrack(agoraTrack);
+        if (agoraManagerRef.current?.isJoined()) {
+          await agoraManagerRef.current.setLocalVideoTrack(agoraTrack as any);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to flip camera:", err);
     }
   };
 
@@ -1026,6 +1109,12 @@ export default function ChatPage() {
         setVideoRoute(mode);
         videoRouteRef.current = mode;
         setIsPartnerCameraOn(partnerCamOn);
+
+        const mutedUsers: Record<string, boolean> = data.mutedUsers || {};
+        const partnerMuted = Object.entries(mutedUsers).some(
+          ([user, muted]) => user.toLowerCase().trim() !== username.toLowerCase().trim() && Boolean(muted)
+        );
+        setIsPartnerMuted(partnerMuted);
 
         if (myCamOn !== isCameraOnRef.current) {
           setIsCameraOn(myCamOn);
@@ -2923,7 +3012,10 @@ export default function ChatPage() {
           isCameraOn={isCameraOn}
           isPartnerCameraOn={isPartnerCameraOn}
           isMuted={isCallMuted}
+          isPartnerMuted={isPartnerMuted}
+          isReconnecting={isCallReconnecting}
           onToggleCamera={handleToggleCamera}
+          onFlipCamera={handleFlipCamera}
           onToggleMute={handleToggleCallMute}
           onEndCall={handleEndCall}
           partnerName={callSession?.caller === username ? "Partner" : callSession?.caller || "Partner"}

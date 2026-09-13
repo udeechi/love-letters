@@ -13,7 +13,10 @@ interface VideoCallOverlayProps {
   isCameraOn: boolean;
   isPartnerCameraOn?: boolean;
   isMuted: boolean;
+  isPartnerMuted?: boolean;
+  isReconnecting?: boolean;
   onToggleCamera: () => void;
+  onFlipCamera?: () => void;
   onToggleMute: () => void;
   onEndCall: () => void;
   partnerName: string;
@@ -36,13 +39,19 @@ export default function VideoCallOverlay({
   isCameraOn,
   isPartnerCameraOn = false,
   isMuted,
+  isPartnerMuted = false,
+  isReconnecting = false,
   onToggleCamera,
+  onFlipCamera,
   onToggleMute,
   onEndCall,
   partnerName,
   callDuration,
 }: VideoCallOverlayProps) {
   const [isMinimized, setIsMinimized] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [isFeedSwapped, setIsFeedSwapped] = useState(false);
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
 
   // Dynamic window size
   const [windowSize, setWindowSize] = useState(() => ({
@@ -56,6 +65,7 @@ export default function VideoCallOverlay({
 
   const isDraggingRef = useRef(false);
   const pipPosRef = useRef<{ x: number; y: number } | null>(null);
+  const hideControlsTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isMobile = windowSize.width < 640;
   const pipWidth = isMobile ? 164 : 220;
@@ -63,6 +73,46 @@ export default function VideoCallOverlay({
 
   const defaultPipX = Math.max(12, windowSize.width - pipWidth - (isMobile ? 16 : 24));
   const defaultPipY = Math.max(12, windowSize.height - pipHeight - (isMobile ? 80 : 96));
+
+  // Detect camera hardware capabilities (front + rear on phones)
+  useEffect(() => {
+    if (typeof navigator !== "undefined" && navigator.mediaDevices?.enumerateDevices) {
+      navigator.mediaDevices
+        .enumerateDevices()
+        .then((devices) => {
+          const videoInputs = devices.filter((d) => d.kind === "videoinput");
+          const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+          setHasMultipleCameras(videoInputs.length > 1 || isMobileDevice);
+        })
+        .catch(() => {
+          if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+            setHasMultipleCameras(true);
+          }
+        });
+    }
+  }, []);
+
+  // Cinema Mode: Auto-hide controls after 4 seconds of inactivity
+  const resetInactivityTimer = useCallback(() => {
+    setShowControls(true);
+    if (hideControlsTimerRef.current) {
+      clearTimeout(hideControlsTimerRef.current);
+    }
+    if (!isMinimized) {
+      hideControlsTimerRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 4000);
+    }
+  }, [isMinimized]);
+
+  useEffect(() => {
+    resetInactivityTimer();
+    return () => {
+      if (hideControlsTimerRef.current) {
+        clearTimeout(hideControlsTimerRef.current);
+      }
+    };
+  }, [resetInactivityTimer]);
 
   // Handle window resizing
   useEffect(() => {
@@ -96,10 +146,10 @@ export default function VideoCallOverlay({
       e?.stopPropagation();
       if (isDraggingRef.current) return;
 
-      // Remember last pip drag position so re-minimizing returns to it
       pipPosRef.current = { x: x.get(), y: y.get() };
 
       setIsMinimized(false);
+      setShowControls(true);
       animate(x, 0, SPRING_TRANSITION);
       animate(y, 0, SPRING_TRANSITION);
     },
@@ -124,10 +174,12 @@ export default function VideoCallOverlay({
   // WebRTC Native elements
   const localVideoElRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const miniVideoElRef = useRef<HTMLVideoElement | null>(null);
 
   // Agora elements
   const localAgoraDivRef = useRef<HTMLDivElement>(null);
   const remoteAgoraDivRef = useRef<HTMLDivElement>(null);
+  const miniAgoraDivRef = useRef<HTMLDivElement>(null);
 
   const remoteUser = remoteUsers[0] || null;
   const hasRemoteAgoraVideo = Boolean(videoRoute === "agora" && remoteUser && remoteUser.videoTrack);
@@ -165,6 +217,20 @@ export default function VideoCallOverlay({
     }
   };
 
+  const setMiniVideoNode = (node: HTMLVideoElement | null) => {
+    miniVideoElRef.current = node;
+    if (!node) return;
+    node.muted = true;
+    node.setAttribute("playsinline", "true");
+    node.setAttribute("webkit-playsinline", "true");
+
+    const trackToPlay = isFeedSwapped ? remoteWebRtcStream : (localMediaStreamTrack ? new MediaStream([localMediaStreamTrack]) : null);
+    if (trackToPlay && node.srcObject !== trackToPlay) {
+      node.srcObject = trackToPlay;
+      node.play().catch(() => {});
+    }
+  };
+
   // 1. Play WebRTC direct local video
   useEffect(() => {
     const el = localVideoElRef.current;
@@ -177,7 +243,7 @@ export default function VideoCallOverlay({
       }
       el.play().catch(() => {});
     }
-  }, [localMediaStreamTrack, isCameraOn, isMinimized]);
+  }, [localMediaStreamTrack, isCameraOn, isMinimized, isFeedSwapped]);
 
   // 2. Play WebRTC direct remote video
   useEffect(() => {
@@ -191,29 +257,29 @@ export default function VideoCallOverlay({
       }
       el.play().catch(() => {});
     }
-  }, [remoteWebRtcStream, hasRemoteWebRtcVideo, isMinimized]);
+  }, [remoteWebRtcStream, hasRemoteWebRtcVideo, isMinimized, isFeedSwapped]);
 
   // 3. Play Agora local video
   useEffect(() => {
-    const el = localAgoraDivRef.current;
+    const el = isFeedSwapped ? miniAgoraDivRef.current : localAgoraDivRef.current;
     if (localAgoraVideoTrack && el) {
       localAgoraVideoTrack.play(el);
       return () => {
         localAgoraVideoTrack.stop();
       };
     }
-  }, [localAgoraVideoTrack, isMinimized]);
+  }, [localAgoraVideoTrack, isMinimized, isFeedSwapped]);
 
   // 4. Play Agora remote video
   useEffect(() => {
-    const el = remoteAgoraDivRef.current;
+    const el = isFeedSwapped ? localAgoraDivRef.current : (miniAgoraDivRef.current || remoteAgoraDivRef.current);
     if (remoteUser && remoteUser.videoTrack && el) {
       remoteUser.videoTrack.play(el);
       return () => {
         remoteUser.videoTrack?.stop();
       };
     }
-  }, [remoteUser?.videoTrack, isMinimized]);
+  }, [remoteUser?.videoTrack, isMinimized, isFeedSwapped]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -233,11 +299,27 @@ export default function VideoCallOverlay({
         right: Math.max(12, windowSize.width - pipWidth - 12),
         bottom: Math.max(12, windowSize.height - pipHeight - 12),
       }}
+      onPointerMove={resetInactivityTimer}
+      onTouchStart={resetInactivityTimer}
       onDragStart={() => {
         isDraggingRef.current = true;
       }}
       onDragEnd={() => {
-        pipPosRef.current = { x: x.get(), y: y.get() };
+        // Magnetic Edge Snapping: snap to nearest side (left or right edge)
+        const curX = x.get();
+        const curY = y.get();
+        const midX = (windowSize.width - pipWidth) / 2;
+        const snapMargin = isMobile ? 12 : 20;
+        const targetSnapX = curX < midX ? snapMargin : windowSize.width - pipWidth - snapMargin;
+
+        const minY = 12;
+        const maxY = windowSize.height - pipHeight - (isMobile ? 80 : 96);
+        const clampedY = Math.max(minY, Math.min(maxY, curY));
+
+        pipPosRef.current = { x: targetSnapX, y: clampedY };
+        animate(x, targetSnapX, SPRING_TRANSITION);
+        animate(y, clampedY, SPRING_TRANSITION);
+
         setTimeout(() => {
           isDraggingRef.current = false;
         }, 50);
@@ -245,6 +327,9 @@ export default function VideoCallOverlay({
       onClick={() => {
         if (isMinimized && !isDraggingRef.current) {
           handleMaximize();
+        } else if (!isMinimized && !showControls) {
+          setShowControls(true);
+          resetInactivityTimer();
         }
       }}
       initial={{
@@ -266,23 +351,24 @@ export default function VideoCallOverlay({
           : "border-transparent shadow-none"
       }`}
     >
-      {/* Top Bar for Full Screen */}
+      {/* Top Bar for Full Screen (Auto-hides after 4s) */}
       <motion.div
         initial={false}
         animate={{
-          opacity: isMinimized ? 0 : 1,
-          y: isMinimized ? -20 : 0,
+          opacity: isMinimized ? 0 : showControls ? 1 : 0,
+          y: isMinimized ? -20 : showControls ? 0 : -25,
         }}
-        transition={{ duration: 0.22 }}
-        style={{ pointerEvents: isMinimized ? "none" : "auto" }}
+        transition={{ duration: 0.25 }}
+        style={{ pointerEvents: !isMinimized && showControls ? "auto" : "none" }}
         className="absolute top-0 inset-x-0 px-4 sm:px-8 py-4 sm:py-6 bg-gradient-to-b from-black/85 via-black/40 to-transparent z-20 flex items-center justify-between"
       >
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
-            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
               <span className="text-sm sm:text-base text-[#f5edd6] font-[family-name:var(--font-playfair)] font-semibold leading-tight drop-shadow-md">
                 {partnerName}
               </span>
+
               {/* Mode Badge */}
               {videoRoute === "direct" ? (
                 <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 text-[10px] sm:text-xs font-mono font-medium backdrop-blur-md shadow-sm">
@@ -293,6 +379,28 @@ export default function VideoCallOverlay({
                 <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#d4af37]/25 text-[#d4af37] border border-[#d4af37]/40 text-[10px] sm:text-xs font-mono font-medium backdrop-blur-md shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#d4af37] animate-pulse" />
                   Cloud Relay • Agora
+                </span>
+              )}
+
+              {/* Partner Muted Indicator */}
+              {isPartnerMuted && (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-black/60 border border-amber-500/40 text-amber-300 text-[10px] sm:text-xs font-mono font-medium backdrop-blur-md shadow-sm">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+                    <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                  Partner Muted
+                </span>
+              )}
+
+              {/* Reconnection Status */}
+              {isReconnecting && (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/25 border border-rose-500/40 text-rose-300 text-[10px] sm:text-xs font-mono font-medium backdrop-blur-md shadow-sm animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
+                  Reconnecting...
                 </span>
               )}
             </div>
@@ -354,24 +462,8 @@ export default function VideoCallOverlay({
 
       {/* Main Video Stage (Persists across minimize / maximize) */}
       <div className="relative flex-1 w-full h-full bg-black flex items-center justify-center overflow-hidden">
-        {/* Direct WebRTC Remote Video */}
-        {hasRemoteWebRtcVideo && (
-          <video
-            ref={setRemoteVideoNode}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover pointer-events-none"
-          />
-        )}
-
-        {/* Agora Remote Video */}
-        {hasRemoteAgoraVideo && (
-          <div ref={remoteAgoraDivRef} className="w-full h-full object-cover pointer-events-none" />
-        )}
-
-        {/* If remote video is off, but local camera is on in PiP mode, show self camera as primary view */}
-        {!hasRemoteVideo && isCameraOn && isMinimized && (
+        {/* If Feeds Swapped: Show Local Camera as Primary Stage */}
+        {isFeedSwapped && isCameraOn ? (
           localMediaStreamTrack ? (
             <video
               ref={setLocalVideoNode}
@@ -383,10 +475,43 @@ export default function VideoCallOverlay({
           ) : localAgoraVideoTrack ? (
             <div ref={localAgoraDivRef} className="w-full h-full object-cover pointer-events-none" />
           ) : null
+        ) : (
+          /* Normal: Show Remote Partner Video on Primary Stage */
+          <>
+            {hasRemoteWebRtcVideo && (
+              <video
+                ref={setRemoteVideoNode}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover pointer-events-none"
+              />
+            )}
+
+            {hasRemoteAgoraVideo && (
+              <div ref={remoteAgoraDivRef} className="w-full h-full object-cover pointer-events-none" />
+            )}
+
+            {/* If remote video is off, but local camera is on in PiP mode, show self camera */}
+            {!hasRemoteVideo && isCameraOn && isMinimized && (
+              localMediaStreamTrack ? (
+                <video
+                  ref={setLocalVideoNode}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover scale-x-[-1] pointer-events-none"
+                />
+              ) : localAgoraVideoTrack ? (
+                <div ref={localAgoraDivRef} className="w-full h-full object-cover pointer-events-none" />
+              ) : null
+            )}
+          </>
         )}
 
         {/* Avatar Placeholder when camera is off */}
-        {!hasRemoteVideo && (!isCameraOn || !isMinimized) && (
+        {((!isFeedSwapped && !hasRemoteVideo && (!isCameraOn || !isMinimized)) ||
+          (isFeedSwapped && !isCameraOn)) && (
           <div className="flex flex-col items-center justify-center p-4 text-center z-10 select-none">
             <div className={`relative ${isMinimized ? "w-14 h-14 mb-2" : "w-24 h-24 sm:w-28 sm:h-28 mb-4"} flex items-center justify-center`}>
               {!isMinimized && <span className="absolute inset-0 rounded-full bg-[#d4af37]/20 animate-ping" />}
@@ -403,50 +528,77 @@ export default function VideoCallOverlay({
           </div>
         )}
 
-        {/* Self-View Mini Window (Only in Full-Screen mode) */}
+        {/* Floating Mini Window (Tap to Swap Feeds) */}
         <AnimatePresence>
-          {isCameraOn && !isMinimized && hasRemoteVideo && (
+          {!isMinimized && isCameraOn && hasRemoteVideo && (
             <motion.div
               drag
               dragMomentum={false}
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.8, opacity: 0 }}
-              className="absolute bottom-24 right-4 sm:bottom-28 sm:right-8 z-30 w-32 h-44 sm:w-48 sm:h-64 rounded-2xl overflow-hidden border-2 border-[#d4af37]/80 shadow-[0_15px_40px_rgba(0,0,0,0.85),0_0_20px_rgba(212,175,55,0.3)] bg-[#181315] cursor-grab active:cursor-grabbing backdrop-blur-md"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsFeedSwapped((prev) => !prev);
+              }}
+              className="absolute bottom-24 right-4 sm:bottom-28 sm:right-8 z-30 w-32 h-44 sm:w-48 sm:h-64 rounded-2xl overflow-hidden border-2 border-[#d4af37]/80 shadow-[0_15px_40px_rgba(0,0,0,0.85),0_0_20px_rgba(212,175,55,0.3)] bg-[#181315] cursor-pointer hover:border-[#d4af37] transition-colors group backdrop-blur-md"
+              title="Click to swap video feeds"
             >
-              {localMediaStreamTrack ? (
-                <video
-                  ref={setLocalVideoNode}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover scale-x-[-1]"
-                />
-              ) : localAgoraVideoTrack ? (
-                <div ref={localAgoraDivRef} className="w-full h-full object-cover" />
+              {isFeedSwapped ? (
+                /* Feeds Swapped: Mini Window shows Remote Video */
+                hasRemoteWebRtcVideo ? (
+                  <video
+                    ref={setMiniVideoNode}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                ) : hasRemoteAgoraVideo ? (
+                  <div ref={miniAgoraDivRef} className="w-full h-full object-cover" />
+                ) : null
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-black/60 text-xs text-white font-mono">
-                  Loading...
-                </div>
+                /* Normal: Mini Window shows Self Video */
+                localMediaStreamTrack ? (
+                  <video
+                    ref={setLocalVideoNode}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                ) : localAgoraVideoTrack ? (
+                  <div ref={localAgoraDivRef} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-black/60 text-xs text-white font-mono">
+                    Loading...
+                  </div>
+                )
               )}
-              <span className="absolute bottom-2 left-2 text-[10px] text-white/90 bg-black/60 px-2 py-0.5 rounded-full font-mono backdrop-blur-sm border border-white/10">
-                You
-              </span>
+
+              {/* Tap to swap badge */}
+              <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[10px] text-white/90 bg-black/65 px-2 py-0.5 rounded-full font-mono backdrop-blur-sm border border-white/10 pointer-events-none">
+                <span className="truncate">{isFeedSwapped ? partnerName : "You"}</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-70 group-hover:opacity-100 group-hover:rotate-180 transition-transform">
+                  <path d="M7 16V4m0 0L3 8m4-4l4 4" />
+                  <path d="M17 8v12m0 0l4-4m-4 4l-4-4" />
+                </svg>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Floating Bottom Control Bar (Full Screen) */}
+      {/* Floating Bottom Control Bar (Full Screen, Auto-hides in Cinema Mode) */}
       <motion.div
         initial={false}
         animate={{
-          opacity: isMinimized ? 0 : 1,
-          y: isMinimized ? 40 : 0,
+          opacity: isMinimized ? 0 : showControls ? 1 : 0,
+          y: isMinimized ? 40 : showControls ? 0 : 35,
         }}
-        transition={{ duration: 0.22 }}
-        style={{ pointerEvents: isMinimized ? "none" : "auto" }}
-        className="absolute bottom-6 sm:bottom-8 inset-x-0 mx-auto w-fit px-6 sm:px-8 py-3 rounded-full bg-black/65 backdrop-blur-xl border border-white/15 shadow-[0_15px_40px_rgba(0,0,0,0.9),0_0_25px_rgba(212,175,55,0.2)] flex items-center gap-6 sm:gap-8 z-20"
+        transition={{ duration: 0.25 }}
+        style={{ pointerEvents: !isMinimized && showControls ? "auto" : "none" }}
+        className="absolute bottom-6 sm:bottom-8 inset-x-0 mx-auto w-fit px-6 sm:px-8 py-3 rounded-full bg-black/65 backdrop-blur-xl border border-white/15 shadow-[0_15px_40px_rgba(0,0,0,0.9),0_0_25px_rgba(212,175,55,0.2)] flex items-center gap-5 sm:gap-7 z-20"
       >
         {/* Mute Mic */}
         <motion.button
@@ -503,6 +655,24 @@ export default function VideoCallOverlay({
             </svg>
           )}
         </motion.button>
+
+        {/* Flip Camera (Front/Rear on Mobile & Multi-Cam Devices) */}
+        {isCameraOn && (hasMultipleCameras || isMobile) && onFlipCamera && (
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={onFlipCamera}
+            className="w-12 h-12 rounded-full flex items-center justify-center transition-all cursor-pointer border bg-white/10 hover:bg-white/20 text-white/90 hover:text-white border-white/20 shadow-md"
+            title="Flip Camera (Front/Rear)"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 2.21.896 4.21 2.343 5.657L4 18" />
+              <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8c0-2.21-.896-4.21-2.343-5.657L20 6" />
+              <polyline points="20 10 20 5 15 5" />
+              <polyline points="4 14 4 19 9 19" />
+            </svg>
+          </motion.button>
+        )}
 
         {/* End Call */}
         <motion.button
