@@ -6,7 +6,7 @@ import type {
   IAgoraRTCRemoteUser,
 } from "agora-rtc-sdk-ng";
 
-export const DEFAULT_AGORA_APP_ID = "1954bd54ff5f4ba78e4792e0a854d85a";
+export const DEFAULT_AGORA_APP_ID = "";
 
 let AgoraRTCModule: typeof AgoraRTC_Type | null = null;
 

@@ -22,6 +22,10 @@ const EmojiPicker = dynamic(() => import("emoji-picker-react"), {
   ssr: false,
 });
 
+const MangaReader = dynamic(() => import("@/components/chat/MangaReader"), {
+  ssr: false,
+});
+
 interface CustomSticker {
   id: string;
   url: string;
@@ -148,6 +152,110 @@ const VoiceMessagePlayer = ({ src, isMe }: { src: string; isMe: boolean }) => {
   );
 };
 
+const AudioPreviewPlayer = ({ src }: { src: string }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateProgress = () => {
+      setCurrentTime(audio.currentTime);
+      if (audio.duration && audio.duration !== Infinity) {
+        setProgress((audio.currentTime / audio.duration) * 100);
+      }
+    };
+
+    const handleLoadedMetadata = () => {
+      if (audio.duration && audio.duration !== Infinity && !isNaN(audio.duration)) {
+        setDuration(audio.duration);
+      }
+    };
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setProgress(0);
+      setCurrentTime(0);
+      audio.currentTime = 0;
+    };
+
+    audio.addEventListener('timeupdate', updateProgress);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('durationchange', handleLoadedMetadata);
+
+    return () => {
+      audio.removeEventListener('timeupdate', updateProgress);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('durationchange', handleLoadedMetadata);
+    };
+  }, []);
+
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play().catch((e) => console.error("Playback error:", e));
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    if (audio && audio.duration && audio.duration !== Infinity) {
+      const seekTime = (parseFloat(e.target.value) / 100) * audio.duration;
+      audio.currentTime = seekTime;
+      setProgress(parseFloat(e.target.value));
+      setCurrentTime(seekTime);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    if (!seconds || isNaN(seconds) || seconds === Infinity) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="flex items-center gap-3 flex-1 px-1 min-w-0">
+      <audio ref={audioRef} src={src} preload="metadata" />
+      
+      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
+        type="button"
+        onClick={togglePlay}
+        className="w-8 h-8 flex-none flex items-center justify-center rounded-full bg-[#d4af37]/20 text-[#d4af37] hover:bg-[#d4af37]/30 transition-colors"
+      >
+        {isPlaying ? (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5"><path d="M5 3l14 9-14 9V3z"></path></svg>
+        )}
+      </motion.button>
+
+      <div className="flex-1 min-w-[60px] flex flex-col justify-center">
+        <input 
+          type="range" 
+          min="0" max="100" 
+          value={progress} 
+          onChange={handleSeek}
+          className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[#d4af37] bg-white/10"
+        />
+      </div>
+      <div className="text-[10px] font-mono text-[#d4af37]/70 whitespace-nowrap text-right w-8 flex-none">
+        {formatTime(currentTime)}
+      </div>
+    </div>
+  );
+};
+
 
 
 const IgEmbed = ({ reelId, msgId, setActiveMessageId }: { reelId: string, msgId: string, setActiveMessageId: (id: string | null) => void }) => {
@@ -198,6 +306,8 @@ export default function ChatPage() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesById = useMemo(() => new Map(messages.map(m => [m.id, m])), [messages]);
+  const [isMangaReaderOpen, setIsMangaReaderOpen] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [messageLimit, setMessageLimit] = useState(50);
@@ -970,6 +1080,7 @@ export default function ChatPage() {
 
   // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
+  const [recordedVoice, setRecordedVoice] = useState<{ file: File; url: string } | null>(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -1521,13 +1632,13 @@ export default function ChatPage() {
     }
   };
 
-  const processPendingFile = (file: File) => {
+  const processPendingFile = (file: File, forcedType?: "image" | "video" | "audio") => {
     const isVideo = file.type.startsWith("video/");
-    const isAudio = file.type.startsWith("audio/") || file.type.includes("webm") || file.type.includes("ogg") || file.type.includes("mp4");
+    const isAudio = file.type.startsWith("audio/") || file.name.endsWith(".webm") || file.name.endsWith(".ogg") || file.name.endsWith(".m4a");
     setPendingMedia({
       file,
       url: URL.createObjectURL(file),
-      type: isVideo ? "video" : isAudio ? "audio" : "image"
+      type: forcedType || (file.name.includes("voice-message") ? "audio" : isVideo ? "video" : isAudio ? "audio" : "image")
     });
   };
 
@@ -1658,12 +1769,43 @@ export default function ChatPage() {
           const blob = new Blob(audioChunksRef.current, { type: mimeType });
           const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
           const file = new File([blob], `voice-message.${ext}`, { type: blob.type });
-          processPendingFile(file);
+          setRecordedVoice({ file, url: URL.createObjectURL(file) });
         }
       };
       mediaRecorderRef.current.stop();
     }
   };
+
+  const handleSendRecordedVoice = async () => {
+    if (!recordedVoice) return;
+    setIsUploadingFile(true);
+    const mediaToUpload = recordedVoice;
+    setRecordedVoice(null); // clear ui
+    
+    try {
+      const uploadData = await uploadToCloudinary(mediaToUpload.file);
+      if (uploadData) {
+        const payload: any = {
+          text: "", 
+          attachmentUrl: uploadData.secure_url,
+          attachmentType: "audio",
+          sender: username,
+          createdAt: serverTimestamp(),
+        };
+        if (replyingTo) payload.replyToId = replyingTo.id;
+        await addDoc(collection(db, "messages"), payload);
+        setReplyingTo(null);
+        URL.revokeObjectURL(mediaToUpload.url);
+        virtuosoRef.current?.scrollToIndex({ index: 999999, behavior: 'smooth' });
+      }
+    } catch (error) {
+      console.error("Audio upload error:", error);
+      alert("Failed to upload voice message.");
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
 
 
   // Auto-scroll when someone starts typing
@@ -1892,6 +2034,16 @@ export default function ChatPage() {
     >
       {/* Background Overlay */}
       {globalBackground && <div className="absolute inset-0 bg-black/60 z-0 pointer-events-none" />}
+
+      {/* Manga Reader Overlay */}
+      <AnimatePresence>
+        {isMangaReaderOpen && (
+          <MangaReader 
+            username={username} 
+            onClose={() => setIsMangaReaderOpen(false)} 
+          />
+        )}
+      </AnimatePresence>
 
       {/* Header */}
       <motion.header initial={{ y: -50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="flex-none p-4 border-b border-[#d4af37]/20 bg-black/40 backdrop-blur-md flex items-center justify-between relative z-50">
@@ -2569,7 +2721,7 @@ export default function ChatPage() {
                 </div>
                 <div className="flex-1 min-w-0 pr-4">
                   {pendingMedia.type === "audio" ? (
-                    <audio src={pendingMedia.url} controls className="w-full h-8" />
+                    <AudioPreviewPlayer src={pendingMedia.url} />
                   ) : (
                     <span className="text-sm text-[#d4af37] truncate block">{pendingMedia.file.name}</span>
                   )}
@@ -2601,20 +2753,34 @@ export default function ChatPage() {
                 <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
                 <span className="font-mono text-sm tracking-widest">{formatTime(recordingTime)}</span>
               </div>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
+                type="button" 
+                onClick={() => stopRecording(false)} 
+                className="px-6 py-1.5 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/40 border border-red-500/30 transition-colors text-xs tracking-widest uppercase"
+              >
+                Stop
+              </motion.button>
+            </motion.div>
+          ) : recordedVoice ? (
+            <motion.div layoutId="recording-box"
+              className="flex items-center justify-between bg-black/60 border border-[#d4af37]/50 rounded-full pl-4 pr-2 py-1.5 h-12"
+            >
+              <AudioPreviewPlayer src={recordedVoice.url} />
               <div className="flex gap-2">
                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
                   type="button" 
-                  onClick={() => stopRecording(true)} 
+                  onClick={() => { URL.revokeObjectURL(recordedVoice.url); setRecordedVoice(null); }} 
                   className="px-4 py-1.5 text-xs text-white/50 hover:text-white transition-colors uppercase tracking-widest"
                 >
                   Cancel
                 </motion.button>
                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
                   type="button" 
-                  onClick={() => stopRecording(false)} 
-                  className="px-4 py-1.5 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/40 border border-red-500/30 transition-colors text-xs tracking-widest uppercase"
+                  onClick={handleSendRecordedVoice} 
+                  disabled={isUploadingFile}
+                  className="px-4 py-1.5 bg-[#d4af37]/20 text-[#d4af37] rounded-full hover:bg-[#d4af37]/40 border border-[#d4af37]/30 transition-colors text-xs tracking-widest uppercase disabled:opacity-50"
                 >
-                  Done
+                  {isUploadingFile ? "..." : "Send"}
                 </motion.button>
               </div>
             </motion.div>
@@ -2664,17 +2830,54 @@ export default function ChatPage() {
                   </motion.div>
                 )}
               </AnimatePresence>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploadingFile}
-                className="w-12 h-12 flex-none flex items-center justify-center bg-black/60 text-[#8a7a6a] rounded-full border border-white/10 hover:text-[#d4af37] hover:border-[#d4af37]/40 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Attach Media"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                </svg>
-              </motion.button>
+              {/* Mobile Combined Menu Button */}
+              <div className="sm:hidden relative">
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                  type="button"
+                  onClick={() => setShowMobileMenu(!showMobileMenu)}
+                  className="w-12 h-12 flex-none flex items-center justify-center bg-black/60 text-[#8a7a6a] rounded-full border border-white/10 hover:text-[#d4af37] hover:border-[#d4af37]/40 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </motion.button>
+                <AnimatePresence>
+                  {showMobileMenu && (
+                    <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute bottom-[60px] left-0 bg-[#1a1a1a] border border-white/10 rounded-2xl p-2 shadow-2xl z-[60] flex flex-col gap-2">
+                      <button type="button" onClick={() => { fileInputRef.current?.click(); setShowMobileMenu(false); }} className="flex items-center gap-3 px-4 py-3 text-sm text-[#e8dcc8] hover:bg-white/5 rounded-xl whitespace-nowrap transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                        Attach Media
+                      </button>
+                      <button type="button" onClick={() => { setIsMangaReaderOpen(true); setShowMobileMenu(false); }} className="flex items-center gap-3 px-4 py-3 text-sm text-[#e8dcc8] hover:bg-white/5 rounded-xl whitespace-nowrap transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+                        Shared Library
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Desktop Separate Buttons */}
+              <div className="hidden sm:flex gap-3">
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                  type="button"
+                  onClick={() => setIsMangaReaderOpen(true)}
+                  className="w-12 h-12 flex-none flex items-center justify-center bg-black/60 text-[#8a7a6a] rounded-full border border-white/10 hover:text-purple-400 hover:border-purple-400/40 transition-colors"
+                  title="Shared Library"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+                </motion.button>
+
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingFile}
+                  className="w-12 h-12 flex-none flex items-center justify-center bg-black/60 text-[#8a7a6a] rounded-full border border-white/10 hover:text-[#d4af37] hover:border-[#d4af37]/40 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Attach Media"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                  </svg>
+                </motion.button>
+              </div>
               
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                 type="button"

@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
     const payload = await getChatAuthPayload();
     const username = (requestedUser || payload?.username || "guest").trim();
 
-    const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID || "1954bd54ff5f4ba78e4792e0a854d85a";
-    const appCert = process.env.AGORA_APP_CERTIFICATE || "ce4daa9addfa433ebea098e48d0cebd2";
+    const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID || "";
+    const appCert = process.env.AGORA_APP_CERTIFICATE || "";
 
     let token: string | null = null;
     if (appCert) {
