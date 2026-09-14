@@ -977,6 +977,22 @@ export default function ChatPage() {
     }
   };
 
+  // Downgrade video to audio when Manga Reader is opened
+  const wasCameraOnRef = useRef(false);
+  useEffect(() => {
+    if (isMangaReaderOpen) {
+      if (isCameraOnRef.current) {
+        wasCameraOnRef.current = true;
+        handleToggleCamera(); // turns it off
+      }
+    } else {
+      if (wasCameraOnRef.current && !isCameraOnRef.current) {
+        handleToggleCamera(); // turns it back on
+        wasCameraOnRef.current = false;
+      }
+    }
+  }, [isMangaReaderOpen]);
+
   // Instagram-style 2-second hold reaction states
   const [reactionMenuMessageId, setReactionMenuMessageId] = useState<string | null>(null);
   const [customReactionMsg, setCustomReactionMsg] = useState<Message | null>(null);
@@ -3220,7 +3236,7 @@ export default function ChatPage() {
       </AnimatePresence>
 
       {/* Video Call Overlay (Dual Mode: Direct WebRTC P2P + Agora Cloud Relay) */}
-      {callState === "connected" && isVideoActive && (
+      {callState === "connected" && isVideoActive && !isMangaReaderOpen && (
         <VideoCallOverlay
           localMediaStreamTrack={localMediaStreamTrack}
           localAgoraVideoTrack={localAgoraVideoTrack}
