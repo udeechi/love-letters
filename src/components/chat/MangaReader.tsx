@@ -221,19 +221,21 @@ export default function MangaReader({ username, onClose }: MangaReaderProps) {
       <div className="flex-1 min-h-0 relative overflow-hidden flex flex-col">
         {!mangaState?.mangaId ? (
           /* Browser / Search View */
-          <div className="flex-1 overflow-y-auto p-4 sm:p-8">
-            <form onSubmit={handleSearch} className="max-w-2xl mx-auto mb-8 relative">
-              <input 
-                type="text" 
-                value={searchInput}
-                onChange={e => setSearchInput(e.target.value)}
-                placeholder="Search by title, character, or enter a 6-digit code..."
-                className="w-full bg-black/60 border border-white/10 rounded-full px-6 py-4 text-[#e8dcc8] placeholder:text-[#8a7a6a] focus:outline-none focus:border-[#d4af37]/50"
-              />
-              <button type="submit" className="absolute right-2 top-2 bottom-2 px-6 bg-[#d4af37]/20 text-[#d4af37] rounded-full hover:bg-[#d4af37]/40 font-medium">
-                {isSearching ? "Searching..." : "Search"}
-              </button>
-            </form>
+          <div className={`flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col ${searchResults.length === 0 ? 'justify-center' : ''}`}>
+            <div className={`w-full max-w-2xl mx-auto transition-all duration-500 ${searchResults.length === 0 ? '-mt-20' : 'mb-8'}`}>
+              <form onSubmit={handleSearch} className="relative">
+                <input 
+                  type="text" 
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  placeholder="Search by title, character, or enter a 6-digit code..."
+                  className="w-full bg-black/60 border border-white/10 rounded-full px-6 py-4 text-[#e8dcc8] placeholder:text-[#8a7a6a] focus:outline-none focus:border-[#d4af37]/50 shadow-lg"
+                />
+                <button type="submit" className="absolute right-2 top-2 bottom-2 px-6 bg-[#d4af37]/20 text-[#d4af37] rounded-full hover:bg-[#d4af37]/40 font-medium">
+                  {isSearching ? "Searching..." : "Search"}
+                </button>
+              </form>
+            </div>
 
             {searchResults.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6">
